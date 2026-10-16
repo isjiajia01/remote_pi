@@ -62,7 +62,11 @@ async fn main() -> anyhow::Result<()> {
     };
     let app = relay::build_router(state);
 
-    let addr = format!("0.0.0.0:{port}");
+    // Bind address defaults to all interfaces (needed for Docker port mapping).
+    // Set REMOTEPI_RELAY_BIND=127.0.0.1 to listen on loopback only, e.g. when
+    // fronted by `tailscale serve` or a local reverse proxy.
+    let bind = std::env::var("REMOTEPI_RELAY_BIND").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let addr = format!("{bind}:{port}");
     let listener = TcpListener::bind(&addr)
         .await
         .with_context(|| format!("failed to bind {addr}"))?;

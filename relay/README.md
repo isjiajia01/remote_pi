@@ -114,6 +114,7 @@ state at the next mutation.
 | Variable | Default | Description |
 |---|---|---|
 | `REMOTEPI_RELAY_PORT` | `3000` | TCP port that serves the WebSocket upgrade, `/health`, and `/mesh/*` (all on the same port) |
+| `REMOTEPI_RELAY_BIND` | `0.0.0.0` | Interface address to bind. Set to `127.0.0.1` to listen on loopback only (e.g. behind `tailscale serve` or a local reverse proxy) |
 | `REMOTEPI_MESH_DB_PATH` | `/data/mesh.db` in Docker · `data/mesh.db` (cwd-relative) for bare-metal builds | Path to the SQLite database that stores signed membership versions. The parent directory is created automatically on first boot. The Docker image presets this to `/data/mesh.db` and declares `/data` as a volume — see the volume note above |
 | `RUST_LOG` | _(none)_ | Log level filter — e.g. `info`, `debug`, `warn` |
 
