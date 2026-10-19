@@ -1,24 +1,16 @@
 import 'dart:async';
 
+import 'package:app/data/local/records/session_index_record.dart';
 import 'package:app/data/preferences/preferences.dart';
+import 'package:app/data/repositories/home_read_repository.dart';
 import 'package:app/data/transport/connection_manager.dart';
 import 'package:app/data/transport/epk_encoding.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/protocol/protocol.dart';
 import 'package:app/ui/core/viewmodel/viewmodel.dart';
+import 'package:app/ui/core/widgets/status_dot.dart';
 import 'package:app/ui/home/states/home_state.dart';
 
-/// HomeViewModel — passive list of paired peers + live presence dots
-/// + rooms discovered on each peer (plan 17). A single tile per
-/// (peer, room).
-///
-/// The WS connection is owned by [ConnectionManager] from app boot (plano
-/// 12). Home only:
-///   - reads the peer list from storage
-///   - watches `presenceStream` + `roomsStream` to render dots / rooms
-///     in real time
-///   - writes [Preferences.selectedRoom] when the user taps a tile so
-///     `/chat` knows which (peer, room) to address
 class HomeViewModel extends ViewModel<HomeState> {
   final PairingStorage _storage;
   final Preferences _prefs;
@@ -26,47 +18,49 @@ class HomeViewModel extends ViewModel<HomeState> {
   StreamSubscription<Map<String, PresenceState>>? _presenceSub;
   StreamSubscription<Map<String, List<RoomInfo>>>? _roomsSub;
   StreamSubscription<ConnectionStatus>? _statusSub;
-  bool _relayConnected = false;
+  StreamSubscription<List<SessionIndexRecord>>? _activitySub;
+  Timer? _clock;
   bool _disposed = false;
+  Map<String, SessionIndexRecord> _activity = {};
+  final _lastKnownStatuses = <String, AgentStatus>{};
 
-  HomeViewModel(this._storage, this._prefs, this._conn)
-    : super(const HomeLoading()) {
-    _relayConnected = _conn.status is StatusOnline;
+  HomeViewModel(
+    this._storage,
+    this._prefs,
+    this._conn, [
+    HomeReadRepository? repository,
+  ]) : super(const HomeLoading()) {
     _load();
-    _presenceSub = _conn.presenceStream.listen(_onPresence);
-    _roomsSub = _conn.roomsStream.listen(_onRooms);
-    _statusSub = _conn.statusStream.listen(_onStatus);
-    // Settings (rename / revoke) and pairing flow both write through
-    // PairingStorage; listening here keeps Home in sync without manual
-    // notifications between screens.
+    _presenceSub = _conn.presenceStream.listen((_) => _update());
+    _roomsSub = _conn.roomsStream.listen((_) => _update());
+    _statusSub = _conn.statusStream.listen((_) => _update());
+    _activitySub = repository?.watchSessions().listen((rows) {
+      _activity = {
+        for (final row in rows)
+          '${normalizeEpkForLookup(row.epk)}:${row.roomId}': row,
+      };
+      final s = state;
+      if (s is HomeList) {
+        emit(s.copyWith(activityByRoom: _activity));
+      }
+    });
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      final s = state;
+      if (s is HomeList) emit(s.copyWith(now: DateTime.now()));
+    });
     _storage.addListener(_onStorageChanged);
   }
 
   void _onStorageChanged() {
-    if (_disposed) return;
-    _load();
+    if (!_disposed) _load();
   }
 
-  /// `true` when the app's WS to the relay is alive (StatusOnline).
-  /// When `false`, every room dot should render in the "reconnecting"
-  /// colour (amber) regardless of `isRoomLive`, because the app has
-  /// no fresh signal on any room.
-  bool get isRelayConnected => _relayConnected;
-
-  /// `true` when `(epk, roomId)`'s agent is currently mid-turn. Drives
-  /// the blue "working" dot on the Home tile.
-  ///
-  /// Plan/32 — single source of truth: the relay broadcasts `meta.working`
-  /// (turn_start/turn_end from the Pi-extension) to ALL subscribed rooms,
-  /// exactly like presence, so this reflects EVERY session — connected or
-  /// not. We deliberately do NOT OR the DB session index here: that row is
-  /// only kept fresh for the currently-connected room (the SyncService
-  /// writer follows the active connection), so a session that finishes
-  /// while the app is on a DIFFERENT chat would never get its index idled
-  /// and the dot would stay blue forever. The relay flag has no such blind
-  /// spot.
-  bool isRoomWorking(String epk, String roomId) =>
-      _conn.isRoomWorking(epk, roomId);
+  bool get isRelayConnected => _conn.status is StatusOnline;
+  HomeRelay get relay => switch (_conn.status) {
+    StatusOnline() => HomeRelay.connected,
+    StatusConnecting() || StatusNoPeer() => HomeRelay.connecting,
+    _ => HomeRelay.offline,
+  };
 
   Future<void> _load() async {
     final peers = await _storage.listPeers();
@@ -75,96 +69,97 @@ class HomeViewModel extends ViewModel<HomeState> {
       emit(const HomeNoPeer());
       return;
     }
-    // Make sure the relay is pushing updates for everyone we know about;
-    // the call is idempotent so this is safe even mid-session. The same
-    // subscribe also covers rooms (plan 17 — replay block in
-    // ConnectionManager sends both presence and rooms subscribes).
     _conn.subscribeToPeers(peers.map((p) => p.remoteEpk).toList());
+    final previous = state;
+    final next = previous is HomeList
+        ? previous.copyWith(peers: peers)
+        : HomeList(peers: peers, grouping: _prefs.homeGrouping);
+    _update(next);
+  }
+
+  void _update([HomeList? initial]) {
+    final s = initial ?? state;
+    if (s is! HomeList || _disposed) return;
+    final rooms = _conn.roomsSnapshot;
+    if (isRelayConnected) {
+      for (final peer in s.peers) {
+        for (final room
+            in rooms[normalizeEpkForLookup(peer.remoteEpk)] ?? <RoomInfo>[]) {
+          _lastKnownStatuses['${peer.remoteEpk}:${room.roomId}'] =
+              deriveAgentStatus(
+                presence: _conn.presenceFor(peer.remoteEpk),
+                announced: _conn.isRoomLive(peer.remoteEpk, room.roomId),
+                working: room.working,
+              );
+        }
+      }
+    }
     emit(
-      HomeList(
-        peers: peers,
+      s.copyWith(
+        activityByRoom: _activity,
         statusByEpk: _conn.presenceSnapshot,
-        roomsByPeer: _conn.roomsSnapshot,
+        roomsByPeer: rooms,
+        statusesByRoom: Map.of(_lastKnownStatuses),
+        relay: relay,
+        staleSince:
+            s.relay == HomeRelay.connected && !isRelayConnected ||
+                s.staleSince == null
+            ? DateTime.now()
+            : s.staleSince,
       ),
     );
   }
 
-  void _onPresence(Map<String, PresenceState> snapshot) {
+  void setFilter(HomeFilter filter) {
     final s = state;
-    if (s is! HomeList) return;
-    emit(s.copyWith(statusByEpk: snapshot));
+    if (s is HomeList) emit(s.copyWith(filter: filter));
   }
 
-  void _onRooms(Map<String, List<RoomInfo>> snapshot) {
+  Future<void> setGrouping(HomeGrouping grouping) async {
     final s = state;
-    if (s is! HomeList) return;
-    emit(s.copyWith(roomsByPeer: snapshot));
+    if (s is HomeList) emit(s.copyWith(grouping: grouping));
+    await _prefs.setHomeGrouping(grouping);
   }
 
-  void _onStatus(ConnectionStatus status) {
-    final next = status is StatusOnline;
-    if (next == _relayConnected) return;
-    _relayConnected = next;
-    // Trigger a re-render of any HomeList so tiles re-evaluate dot
-    // colour (room-live vs reconnecting).
+  Future<void> refresh() async {
     final s = state;
     if (s is HomeList) {
-      // emit a duplicate-looking HomeList so context.watch() triggers
-      // even though peers / roomsByPeer / presence didn't change.
-      // Preserve `filter` — otherwise a status flip would silently reset
-      // the user's tab back to the Online default (and, because the new
-      // object would then differ, actually fire that reset).
-      emit(
-        HomeList(
-          peers: s.peers,
-          statusByEpk: s.statusByEpk,
-          roomsByPeer: s.roomsByPeer,
-          filter: s.filter,
-        ),
-      );
+      // subscribeToPeers also requests rooms_check and presence_check.
+      _conn.subscribeToPeers(s.peers.map((p) => p.remoteEpk).toList());
     }
   }
 
-  /// Plan-38 Fase 3 — switch the presence tab. No reload: it only swaps the
-  /// `filter` in state so [visibleItems] re-derives. No-op when the state
-  /// isn't a list or the filter is unchanged.
-  void setFilter(HomeFilter filter) {
+  Future<void> retry() async {
     final s = state;
-    if (s is! HomeList) return;
-    if (s.filter == filter) return;
-    emit(s.copyWith(filter: filter));
+    if (s is! HomeList || s.peers.isEmpty) return;
+    await _conn.switchTo(_conn.activePeer ?? s.peers.first);
+    await refresh();
   }
 
-  /// `true` when `(epk, roomId)` is live on the relay AND the relay itself
-  /// is reachable. The single source of truth for the Online/Offline split.
-  /// [ConnectionManager.isRoomLive] is already gated on `StatusOnline`, so
-  /// the `_relayConnected &&` is belt-and-suspenders that also documents
-  /// intent: "online" requires a live relay.
-  bool _online(HomeItem it) =>
-      _relayConnected && _conn.isRoomLive(it.peer.remoteEpk, it.room.roomId);
-
-  /// Plan-38 Fase 3 — the items the current [HomeList.filter] keeps. A pure
-  /// view over `state.items()`; returns `const []` outside a list state.
   List<HomeItem> get visibleItems {
     final s = state;
-    if (s is! HomeList) return const [];
-    final all = s.items(normalizeEpk: normalizeEpkForLookup);
-    return switch (s.filter) {
-      HomeFilter.all => all,
-      HomeFilter.online => all.where(_online).toList(),
-      HomeFilter.offline => all.where((i) => !_online(i)).toList(),
-    };
+    return s is HomeList
+        ? s.visibleItems(normalizeEpk: normalizeEpkForLookup)
+        : [];
   }
 
-  /// Plan-38 Fase 3 — per-tab counts for the filter badges. Independent of
-  /// the active tab (each badge always shows its own slice's size).
-  ({int all, int online, int offline}) get counts {
+  ({int all, int working, int online, int offline}) get counts {
     final s = state;
-    if (s is! HomeList) return (all: 0, online: 0, offline: 0);
-    final all = s.items(normalizeEpk: normalizeEpkForLookup);
-    final online = all.where(_online).length;
-    return (all: all.length, online: online, offline: all.length - online);
+    final all = s is HomeList
+        ? s.items(normalizeEpk: normalizeEpkForLookup)
+        : <HomeItem>[];
+    int count(AgentStatus status) =>
+        all.where((i) => i.lastKnownStatus == status).length;
+    return (
+      all: all.length,
+      working: count(AgentStatus.working),
+      online: count(AgentStatus.online),
+      offline: count(AgentStatus.offline),
+    );
   }
+
+  bool isRoomWorking(String epk, String roomId) =>
+      _conn.isRoomWorking(epk, roomId);
 
   /// Remember which (peer, room) the user picked. Falls back to
   /// `roomId='main'` when the caller doesn't supply one (legacy /
@@ -222,6 +217,8 @@ class HomeViewModel extends ViewModel<HomeState> {
     _presenceSub?.cancel();
     _roomsSub?.cancel();
     _statusSub?.cancel();
+    _activitySub?.cancel();
+    _clock?.cancel();
     _storage.removeListener(_onStorageChanged);
     super.dispose();
   }

@@ -1,98 +1,97 @@
-import 'package:app/routing/adaptive.dart' show kMaxContentWidth;
 import 'package:app/ui/core/themes/themes.dart';
+import 'package:app/ui/core/widgets/widgets.dart';
 import 'package:app/ui/home/states/home_state.dart';
-import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter/cupertino.dart';
 
-/// Plan-38 Fase 3 — presence filter for the Home list. A 3-pill segmented
-/// control (All · Online · Offline) the user taps to slice the existing
-/// (peer → room) list by liveness. Pure view filter: tapping a tab never
-/// reloads data, it only narrows [HomeViewModel.visibleItems]. The default
-/// tab is Online (set by [HomeList.filter]).
 class HomeFilterTabs extends StatelessWidget {
-  final HomeFilter filter;
-
-  /// Per-tab counts for the badges (each tab shows its own slice's size).
-  final ({int all, int online, int offline}) counts;
-  final ValueChanged<HomeFilter> onSelected;
-
   const HomeFilterTabs({
     super.key,
     required this.filter,
     required this.counts,
     required this.onSelected,
+    this.stale = false,
   });
+  final HomeFilter filter;
+  final ({int all, int working, int online, int offline}) counts;
+  final ValueChanged<HomeFilter> onSelected;
+  final bool stale;
 
   @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
-      child: Container(
-        decoration: BoxDecoration(
-          color: colors.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: colors.border),
+  Widget build(BuildContext context) => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    child: Row(
+      children: [
+        _chip(context, HomeFilter.all, 'All', '${counts.all}'),
+        _chip(
+          context,
+          HomeFilter.working,
+          'Working',
+          stale ? '–' : '${counts.working}',
         ),
-        padding: const EdgeInsets.all(3),
-        child: Row(
-          children: [
-            _segment(context, HomeFilter.all, 'All', counts.all),
-            _segment(context, HomeFilter.online, 'Online', counts.online),
-            _segment(context, HomeFilter.offline, 'Offline', counts.offline),
-          ],
-        ),
-      ),
-    );
-  }
+        _chip(context, HomeFilter.online, 'Online', '${counts.online}'),
+        _chip(context, HomeFilter.offline, 'Offline', '${counts.offline}'),
+      ],
+    ),
+  );
 
-  Widget _segment(
+  Widget _chip(
     BuildContext context,
     HomeFilter value,
     String label,
-    int count,
+    String count,
   ) {
-    final colors = context.colors;
     final selected = filter == value;
-    return Expanded(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Semantics(
+        selected: selected,
+        button: true,
+        label: '$label $count',
         onTap: () => onSelected(value),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: selected ? colors.accent : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: kMonoFamily,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: selected ? colors.onAccent : colors.muted,
+        child: ExcludeSemantics(
+          child: CupertinoButton(
+            minimumSize: const Size(0, 44),
+            padding: EdgeInsets.zero,
+            onPressed: () => onSelected(value),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+              height: 32,
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: selected ? c.ink : c.surface2,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: context.typo.footnote.copyWith(
+                      color: selected ? c.bg : c.ink,
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 6),
+                  Text(
+                    count,
+                    style: context.typo.footnote.copyWith(
+                      fontFeatures: AppTypography.tabularFigures,
+                      color:
+                          value == HomeFilter.working &&
+                              counts.working > 0 &&
+                              !stale
+                          ? c.working
+                          : selected
+                          ? c.bg
+                          : c.ink,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 6),
-              Text(
-                '$count',
-                style: TextStyle(
-                  fontFamily: kMonoFamily,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: selected ? colors.onAccent : colors.muted2,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -100,70 +99,30 @@ class HomeFilterTabs extends StatelessWidget {
   }
 }
 
-/// Plan-38 Fase 3 — empty state shown BELOW the tabs when the current tab
-/// has no matching sessions but the list isn't globally empty (the
-/// globally-empty case keeps the existing "Nothing here…" lonely state and
-/// hides the tabs entirely). Copy varies per tab so the user understands
-/// it's a filter, not a dead end. [HomeFilter.all] is included for
-/// completeness but in practice never renders empty while items exist.
 class HomeFilterEmptyState extends StatelessWidget {
+  const HomeFilterEmptyState({super.key, required this.filter, this.onShowAll});
   final HomeFilter filter;
-  const HomeFilterEmptyState({super.key, required this.filter});
-
+  final VoidCallback? onShowAll;
   @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    final (String title, String subtitle) = switch (filter) {
-      HomeFilter.online => (
-        'No sessions online',
-        'Live sessions appear here when a paired Pi is active.',
-      ),
-      HomeFilter.offline => (
-        'No offline sessions',
-        'Sessions you’ve seen before that aren’t live show up here.',
-      ),
-      HomeFilter.all => (
-        'Nothing here…',
-        'When a paired Pi opens a session, it shows up here.',
-      ),
-    };
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: kMaxContentWidth),
-        child: Opacity(
-          opacity: 0.35,
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(LucideIcons.moon, color: colors.muted, size: 56),
-                const SizedBox(height: 18),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontFamily: kMonoFamily,
-                    color: colors.muted2,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  subtitle,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: kMonoFamily,
-                    color: colors.muted,
-                    fontSize: 11,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            switch (filter) {
+              HomeFilter.working => 'Nothing working right now',
+              HomeFilter.offline => 'No offline agents',
+              HomeFilter.online => 'No online agents',
+              HomeFilter.all => 'No agents running',
+            },
+            style: context.typo.title2,
+            textAlign: TextAlign.center,
           ),
-        ),
+          SecondaryButton(label: 'Show all', onPressed: onShowAll),
+        ],
       ),
-    );
-  }
+    ),
+  );
 }

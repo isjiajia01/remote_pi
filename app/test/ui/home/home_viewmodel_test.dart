@@ -9,6 +9,7 @@ import 'package:app/pairing/pair_request_flow.dart';
 import 'package:app/protocol/protocol.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/ui/home/states/home_state.dart';
+import 'package:app/ui/core/widgets/status_dot.dart';
 import 'package:app/ui/home/viewmodels/home_viewmodel.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -129,8 +130,9 @@ class _ControllableChannel implements IChannel, IControlLink {
   Stream<ControlInbound> get controlFrames => _controlCtrl.stream;
   @override
   Future<void> send(ClientMessage msg) async {}
+  final sentControls = <Map<String, dynamic>>[];
   @override
-  void sendControl(Map<String, dynamic> json) {}
+  void sendControl(Map<String, dynamic> json) => sentControls.add(json);
   @override
   Future<void> close() async {
     await _serverCtrl.close();
@@ -212,6 +214,89 @@ void main() {
         conn.dispose();
       },
     );
+
+    test(
+      'relay loss emits Stale while retaining Working; reconnect restores Online',
+      () async {
+        final first = _ControllableChannel();
+        final second = _ControllableChannel();
+        final storage = _FakeStorage([_peerA]);
+        var connects = 0;
+        final conn = ConnectionManager(
+          factory: (_, _) async => connects++ == 0 ? first : second,
+          storage: storage,
+          emitDebounce: Duration.zero,
+        );
+        final vm = HomeViewModel(
+          storage,
+          Preferences(_FakeSecureStorage()),
+          conn,
+        );
+        await conn.connectTo(_peerA);
+        first.pushControl(const PeerOnline(peer: 'epk_A'));
+        first.pushControl(
+          const RoomAnnounced(
+            peer: 'epk_A',
+            roomId: 'r1',
+            startedAt: 1,
+            working: true,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(vm.visibleItems.single.lastKnownStatus, AgentStatus.working);
+        var notifications = 0;
+        vm.addListener(() => notifications++);
+        await first.close();
+        await Future<void>.delayed(Duration.zero);
+        expect((vm.state as HomeList).relay, HomeRelay.offline);
+        expect(vm.visibleItems.single.status, AgentStatus.stale);
+        expect(vm.visibleItems.single.lastKnownStatus, AgentStatus.working);
+        expect(notifications, greaterThan(0));
+        await vm.retry();
+        second.pushControl(const PeerOnline(peer: 'epk_A'));
+        second.pushControl(
+          const RoomMetaUpdated(
+            peer: 'epk_A',
+            roomId: 'r1',
+            working: false,
+            hasModel: false,
+            hasThinking: false,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect((vm.state as HomeList).relay, HomeRelay.connected);
+        expect(vm.visibleItems.single.status, AgentStatus.online);
+        vm.dispose();
+        await conn.disconnect();
+        conn.dispose();
+      },
+    );
+
+    test('refresh requests rooms_check for every paired machine', () async {
+      final channel = _ControllableChannel();
+      final storage = _FakeStorage([_peerA, _peerB]);
+      final conn = ConnectionManager(
+        factory: (_, _) async => channel,
+        storage: storage,
+      );
+      final vm = HomeViewModel(
+        storage,
+        Preferences(_FakeSecureStorage()),
+        conn,
+      );
+      await conn.connectTo(_peerA);
+      await Future<void>.delayed(Duration.zero);
+      channel.sentControls.clear();
+      await vm.refresh();
+      final checks = channel.sentControls.where(
+        (frame) => frame['type'] == 'rooms_check',
+      );
+      expect(checks, hasLength(1));
+      expect(checks.single['peers'], ['epk_A', 'epk_B']);
+      vm.dispose();
+      await conn.disconnect();
+      conn.dispose();
+    });
 
     test('initial state is HomeLoading', () {
       final storage = _FakeStorage([_peerA]);
@@ -345,6 +430,8 @@ void main() {
       await conn.connectTo(_peerA);
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
+      ch.pushControl(const PeerOnline(peer: 'epk_A'));
+
       // r1 stays live; r2 is announced then ended → cached but offline
       // (grey tile — still in _roomsByPeer, dropped from _liveRoomIds).
       ch.pushControl(
@@ -361,11 +448,11 @@ void main() {
       expect(vm.isRoomLive('epk_A', 'r2'), isFalse);
 
       // Counts are independent of the selected tab.
-      expect(vm.counts, (all: 2, online: 1, offline: 1));
+      expect(vm.counts, (all: 2, working: 0, online: 1, offline: 1));
 
-      // Default tab is Online → only the live room is visible.
-      expect((vm.state as HomeList).filter, HomeFilter.online);
-      expect(vm.visibleItems.map((i) => i.room.roomId).toList(), ['r1']);
+      // Default All keeps both live and cached rooms visible.
+      expect((vm.state as HomeList).filter, HomeFilter.all);
+      expect(vm.visibleItems.map((i) => i.room.roomId).toList(), ['r1', 'r2']);
 
       // Offline → only the cached room.
       vm.setFilter(HomeFilter.offline);
@@ -375,7 +462,7 @@ void main() {
       // All → both (sorted), and the counts are unchanged.
       vm.setFilter(HomeFilter.all);
       expect(vm.visibleItems.map((i) => i.room.roomId).toList(), ['r1', 'r2']);
-      expect(vm.counts, (all: 2, online: 1, offline: 1));
+      expect(vm.counts, (all: 2, working: 0, online: 1, offline: 1));
 
       vm.dispose();
       await conn.disconnect();
@@ -391,11 +478,11 @@ void main() {
         final vm = HomeViewModel(storage, prefs, _conn(storage: storage));
         await Future<void>.delayed(Duration.zero);
 
-        expect((vm.state as HomeList).filter, HomeFilter.online);
+        expect((vm.state as HomeList).filter, HomeFilter.all);
         var notifies = 0;
         vm.addListener(() => notifies++);
 
-        vm.setFilter(HomeFilter.online); // same tab → no emit
+        vm.setFilter(HomeFilter.all); // same tab → no emit
         expect(notifies, 0);
 
         vm.setFilter(HomeFilter.offline); // changed → one emit
@@ -413,7 +500,7 @@ void main() {
 
       // Synchronously still HomeLoading — the getters must not throw.
       expect(vm.state, isA<HomeLoading>());
-      expect(vm.counts, (all: 0, online: 0, offline: 0));
+      expect(vm.counts, (all: 0, working: 0, online: 0, offline: 0));
       expect(vm.visibleItems, isEmpty);
 
       vm.dispose();

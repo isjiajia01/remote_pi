@@ -19,7 +19,7 @@ void main() {
           home: Scaffold(
             body: HomeFilterTabs(
               filter: filter,
-              counts: (all: 3, online: 1, offline: 2),
+              counts: (all: 3, working: 0, online: 1, offline: 2),
               onSelected: onSelected ?? (_) {},
             ),
           ),
@@ -27,10 +27,11 @@ void main() {
       );
     }
 
-    testWidgets('renders the three tabs with their counts', (tester) async {
+    testWidgets('renders the four chips with their counts', (tester) async {
       await pump(tester);
       expect(find.text('All'), findsOneWidget);
       expect(find.text('Online'), findsOneWidget);
+      expect(find.text('Working'), findsOneWidget);
       expect(find.text('Offline'), findsOneWidget);
       // Distinct counts so each digit maps to exactly one badge.
       expect(find.text('3'), findsOneWidget);
@@ -64,14 +65,14 @@ void main() {
       );
     }
 
-    testWidgets('online tab → "No sessions online"', (tester) async {
+    testWidgets('online filter → "No online agents"', (tester) async {
       await pump(tester, HomeFilter.online);
-      expect(find.text('No sessions online'), findsOneWidget);
+      expect(find.text('No online agents'), findsOneWidget);
     });
 
-    testWidgets('offline tab → "No offline sessions"', (tester) async {
+    testWidgets('offline filter → "No offline agents"', (tester) async {
       await pump(tester, HomeFilter.offline);
-      expect(find.text('No offline sessions'), findsOneWidget);
+      expect(find.text('No offline agents'), findsOneWidget);
     });
   });
 }

@@ -54,6 +54,21 @@ class _FakeSecureStorage implements FlutterSecureStorage {
 
 void main() {
   group('Preferences', () {
+    test(
+      'dashboard grouping defaults machine and persists project across reload',
+      () async {
+        final storage = _FakeSecureStorage();
+        final prefs = Preferences(storage);
+        expect(prefs.homeGrouping, HomeGrouping.machine);
+        await prefs.setHomeGrouping(HomeGrouping.project);
+        final restored = Preferences(storage);
+        await restored.load();
+        expect(restored.homeGrouping, HomeGrouping.project);
+        await storage.write(key: 'prefs.home_grouping', value: 'invalid');
+        await restored.load();
+        expect(restored.homeGrouping, HomeGrouping.machine);
+      },
+    );
     test('defaults to hideToolCalls=false before load()', () {
       final p = Preferences(_FakeSecureStorage());
       expect(p.hideToolCalls, isFalse);

@@ -290,7 +290,11 @@ GoRouter buildRouter(
                     ViewmodelProvider<HomeViewModel>(),
                     ViewmodelProvider<UpdateBannerViewModel>(),
                   ],
-                  child: const HomePage(),
+                  child: HomePage(
+                    pairedPeerEpk:
+                        (st.extra as Map<String, dynamic>?)?['pairedPeerEpk']
+                            as String?,
+                  ),
                 ),
               ),
             ],

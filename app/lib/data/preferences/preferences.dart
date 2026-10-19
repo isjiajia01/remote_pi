@@ -4,6 +4,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:app/ui/core/themes/app_font_scale.dart';
 
+enum HomeGrouping { machine, project }
+
 /// App-wide UI preferences (persisted across launches).
 ///
 /// Extends [ChangeNotifier] so widgets can `context.watch<Preferences>()`
@@ -13,6 +15,8 @@ import 'package:app/ui/core/themes/app_font_scale.dart';
 class Preferences extends ChangeNotifier {
   final FlutterSecureStorage _store;
   bool _hideToolCalls = false;
+  HomeGrouping _homeGrouping = HomeGrouping.machine;
+  HomeGrouping get homeGrouping => _homeGrouping;
   String? _selectedPeerEpk;
   String? _relayUrl;
   bool _onboardingCompleted = false;
@@ -20,7 +24,7 @@ class Preferences extends ChangeNotifier {
   AppFontScale _fontScale = AppFontScale.standard;
 
   Preferences([FlutterSecureStorage? store])
-      : _store = store ?? const FlutterSecureStorage();
+    : _store = store ?? const FlutterSecureStorage();
 
   static const _kHideToolCallsKey = 'prefs.hide_tool_calls';
   static const _kSelectedPeerEpkKey = 'prefs.selected_peer_epk';
@@ -28,6 +32,7 @@ class Preferences extends ChangeNotifier {
   static const _kOnboardingCompletedKey = 'prefs.onboarding_completed';
   static const _kThemeModeKey = 'prefs.theme_mode';
   static const _kFontScaleKey = 'prefs.font_scale';
+  static const _kHomeGroupingKey = 'prefs.home_grouping';
 
   /// True → chat hides `ToolEvent` rows (only user/assistant text remain).
   bool get hideToolCalls => _hideToolCalls;
@@ -129,16 +134,29 @@ class Preferences extends ChangeNotifier {
       changed = true;
     }
 
+    final grouping = await _store.read(key: _kHomeGroupingKey);
+    final nextGrouping = grouping == 'project'
+        ? HomeGrouping.project
+        : HomeGrouping.machine;
+    if (nextGrouping != _homeGrouping) {
+      _homeGrouping = nextGrouping;
+      changed = true;
+    }
+
     if (changed) notifyListeners();
+  }
+
+  Future<void> setHomeGrouping(HomeGrouping value) async {
+    if (_homeGrouping == value) return;
+    _homeGrouping = value;
+    await _store.write(key: _kHomeGroupingKey, value: value.name);
+    notifyListeners();
   }
 
   Future<void> setHideToolCalls(bool value) async {
     if (_hideToolCalls == value) return;
     _hideToolCalls = value;
-    await _store.write(
-      key: _kHideToolCallsKey,
-      value: value.toString(),
-    );
+    await _store.write(key: _kHideToolCallsKey, value: value.toString());
     notifyListeners();
   }
 
@@ -161,9 +179,7 @@ class Preferences extends ChangeNotifier {
     if (epk == null || epk.isEmpty) {
       return setSelectedPeerEpk(null);
     }
-    final composite = (roomId == null || roomId.isEmpty)
-        ? epk
-        : '$epk:$roomId';
+    final composite = (roomId == null || roomId.isEmpty) ? epk : '$epk:$roomId';
     return setSelectedPeerEpk(composite);
   }
 
@@ -185,10 +201,7 @@ class Preferences extends ChangeNotifier {
   Future<void> setOnboardingCompleted(bool value) async {
     if (_onboardingCompleted == value) return;
     _onboardingCompleted = value;
-    await _store.write(
-      key: _kOnboardingCompletedKey,
-      value: value.toString(),
-    );
+    await _store.write(key: _kOnboardingCompletedKey, value: value.toString());
     notifyListeners();
   }
 

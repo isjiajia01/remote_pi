@@ -1,512 +1,342 @@
+import 'dart:async';
+
+import 'package:app/data/preferences/preferences.dart';
 import 'package:app/data/transport/epk_encoding.dart';
 import 'package:app/pairing/storage.dart';
-import 'package:app/protocol/protocol.dart' show RoomInfo;
+import 'package:app/protocol/protocol.dart';
 import 'package:app/routing/adaptive.dart';
 import 'package:app/ui/core/themes/themes.dart';
+import 'package:app/ui/core/widgets/widgets.dart';
 import 'package:app/ui/home/states/home_state.dart';
-import 'package:app/ui/settings/settings_sheet.dart';
 import 'package:app/ui/home/viewmodels/home_viewmodel.dart';
 import 'package:app/ui/home/widgets/widgets.dart';
 import 'package:app/ui/update/widgets/update_banner.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show Scaffold, Divider;
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-/// Plan-18 follow-up — iOS-style large title that collapses into a
-/// compact bar when scrolled. Built with `SliverAppBar +
-/// FlexibleSpaceBar`. Subtitle shows the first paired Mac + relay
-/// status. Body is sectioned by pairing always (single peer also
-/// gets the pairing header, per the mock).
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+class HomePage extends StatefulWidget {
+  const HomePage({super.key, this.pairedPeerEpk});
+  final String? pairedPeerEpk;
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  Timer? _highlightTimer;
+  String? _highlightedEpk;
+  String? _consumedEpk;
+
+  @override
+  void didUpdateWidget(HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pairedPeerEpk != widget.pairedPeerEpk) {
+      _consumedEpk = null;
+      _highlightTimer?.cancel();
+      _highlightedEpk = null;
+    }
+  }
+
+  void _highlightNewMachine(HomeState state) {
+    final epk = widget.pairedPeerEpk;
+    if (epk == null ||
+        epk == _consumedEpk ||
+        state is! HomeList ||
+        !state.peers.any((p) => p.remoteEpk == epk)) {
+      return;
+    }
+    _consumedEpk = epk;
+    _highlightedEpk = epk;
+    _highlightTimer = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) setState(() => _highlightedEpk = null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _highlightTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
     final vm = context.watch<HomeViewModel>();
     final state = vm.state;
-
-    // Plan/tablet — tell the adaptive shell whether Home has anything to
-    // list. On a zero-state (no Pi paired / empty list) the shell drops
-    // the two-pane split and shows this page full-width + centered. Done
-    // post-frame so we never notify mid-build.
-    final isZeroState = switch (state) {
-      HomeLoading() => false,
-      HomeNoPeer() => true,
-      HomeList() => state.items(normalizeEpk: toStandardB64).isEmpty,
-    };
+    _highlightNewMachine(state);
     final shell = context.read<ShellLayout>();
+    final zero =
+        state is HomeNoPeer ||
+        state is HomeList && state.items(normalizeEpk: toStandardB64).isEmpty;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      shell.setZeroState(isZeroState);
+      if (mounted) shell.setZeroState(zero);
     });
-
     return Scaffold(
-      backgroundColor: colors.bg,
-      body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            _buildLargeTitleBar(context, vm, state),
-            // Plan 44 — Android-only update notice. Sits at the top of the
-            // scroll content (below the title, above the list); shrinks to
-            // zero height when there's nothing to announce, so it's invisible
-            // on iOS and when no newer version exists.
-            const SliverToBoxAdapter(child: UpdateBanner()),
-            switch (state) {
-              HomeLoading() => SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(
-                  child: CircularProgressIndicator(color: colors.accent),
-                ),
-              ),
-              HomeNoPeer() => const SliverFillRemaining(
-                hasScrollBody: false,
-                child: _EmptyState(),
-              ),
-              HomeList() => _buildListSlivers(context, vm, state),
-            },
-          ],
+      backgroundColor: context.colors.bg,
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
         ),
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Large title (iOS-style)
-  // ---------------------------------------------------------------------------
-
-  Widget _buildLargeTitleBar(
-    BuildContext context,
-    HomeViewModel vm,
-    HomeState state,
-  ) {
-    final colors = context.colors;
-    final subtitle = _subtitleFor(context, vm, state);
-    const maxExpanded = 124.0;
-    return SliverAppBar(
-      backgroundColor: colors.bg,
-      surfaceTintColor: colors.bg,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-      pinned: true,
-      stretch: false,
-      expandedHeight: maxExpanded,
-      collapsedHeight: 56,
-      toolbarHeight: 56,
-      automaticallyImplyLeading: false,
-      actions: [
-        IconButton(
-          tooltip: 'Settings',
-          icon: Icon(LucideIcons.settings, color: colors.muted2),
-          // Tablet → bottom sheet (keeps the chat in context); phone →
-          // full-screen push. See openSettings.
-          onPressed: () => openSettings(context),
-        ),
-        const SizedBox(width: 4),
-      ],
-      // Title rendering happens entirely inside flexibleSpace so we
-      // can cross-fade between the large form (expanded) and the
-      // compact form (collapsed). Using `SliverAppBar.title` here
-      // would overlay the compact title on top of the large one
-      // while expanded — that was the "two app bars" bug.
-      flexibleSpace: LayoutBuilder(
-        builder: (ctx, constraints) {
-          final maxH = constraints.maxHeight;
-          const minH = 56.0;
-          // t=1 → fully expanded; t=0 → fully collapsed.
-          final t = ((maxH - minH) / (maxExpanded - minH)).clamp(0.0, 1.0);
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Container(color: colors.bg),
-              // Large title block — fades OUT as we collapse.
-              Positioned(
-                left: 20,
-                right: 20,
-                bottom: 8,
-                child: IgnorePointer(
-                  ignoring: t < 0.05,
-                  child: Opacity(
-                    opacity: t,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Remote Pi',
-                          style: brandTextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w700,
-                            color: colors.text,
-                            letterSpacing: -0.5,
-                            height: 1.05,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        subtitle,
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              // Compact title — fades IN as we collapse.
-              Positioned(
-                left: 20,
-                right: 64, // leave space for the actions icon
-                top: 0,
-                height: 56,
-                child: IgnorePointer(
-                  ignoring: t > 0.95,
-                  child: Opacity(
-                    opacity: 1 - t,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Remote Pi',
-                        style: brandTextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: colors.text,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              // Bottom divider — only shows once collapsed.
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Opacity(
-                  opacity: 1 - t,
-                  child: Divider(color: colors.border, height: 1, thickness: 1),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  /// Subtitle line under "Remote Pi": ● Relay · [Connected|Awaiting pairing|Offline].
-  /// Reflects the app→relay WS state (not per-Pi presence) so the
-  /// user always knows whether the app itself is reachable.
-  ///
-  /// `HomeNoPeer` is the special case where no peer is paired yet —
-  /// the WS is never opened (its URL embeds the destination peer's
-  /// pubkey), so `isRelayConnected` is false but that doesn't mean
-  /// the relay is down. Render a neutral "Awaiting pairing" instead
-  /// of the alarming amber "Offline".
-  Widget _subtitleFor(BuildContext context, HomeViewModel vm, HomeState state) {
-    final colors = context.colors;
-    final connected = vm.isRelayConnected;
-    final awaitingPairing = state is HomeNoPeer;
-    final Color dotColor;
-    final String statusLabel;
-    final Color statusColor;
-    if (connected) {
-      dotColor = colors.success;
-      statusLabel = 'Connected';
-      statusColor = colors.muted;
-    } else if (awaitingPairing) {
-      dotColor = colors.muted;
-      statusLabel = 'Awaiting pairing';
-      statusColor = colors.muted;
-    } else {
-      dotColor = colors.warning;
-      statusLabel = 'Offline';
-      statusColor = colors.warning;
-    }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          'Relay',
-          style: TextStyle(
-            fontFamily: kMonoFamily,
-            color: colors.text,
-            fontSize: 13,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          '·',
-          style: TextStyle(
-            fontFamily: kMonoFamily,
-            color: colors.muted,
-            fontSize: 13,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          statusLabel,
-          style: TextStyle(
-            fontFamily: kMonoFamily,
-            color: statusColor,
-            fontSize: 13,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // List body
-  // ---------------------------------------------------------------------------
-
-  Widget _buildListSlivers(
-    BuildContext context,
-    HomeViewModel vm,
-    HomeList state,
-  ) {
-    final counts = vm.counts;
-    // Globally empty (paired Pi, no rooms at all): keep the original lonely
-    // state and DON'T show the tabs — there's nothing to filter.
-    if (counts.all == 0) {
-      return const SliverFillRemaining(
-        hasScrollBody: false,
-        child: _LonelyEmptyState(),
-      );
-    }
-
-    // Plan-38 Fase 3 — presence filter at the top of the list. Pure view:
-    // tapping a tab only swaps `state.filter` → `vm.visibleItems` re-derives.
-    final tabs = SliverToBoxAdapter(
-      child: HomeFilterTabs(
-        filter: state.filter,
-        counts: counts,
-        onSelected: vm.setFilter,
-      ),
-    );
-
-    final visible = vm.visibleItems;
-    if (visible.isEmpty) {
-      // Items exist, but none match this tab → per-tab empty state beneath
-      // the tabs (which stay visible so the user can switch back).
-      return SliverMainAxisGroup(
         slivers: [
-          tabs,
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: HomeFilterEmptyState(filter: state.filter),
+          CupertinoSliverNavigationBar(
+            backgroundColor: context.colors.bg,
+            border: null,
+            largeTitle: Text('Agents', style: context.typo.largeTitle),
+            automaticallyImplyLeading: false,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CupertinoButton(
+                  padding: const EdgeInsets.all(10),
+                  minimumSize: const Size(44, 44),
+                  onPressed: state is HomeList
+                      ? () => _showGrouping(context, vm, state.grouping)
+                      : null,
+                  child: Semantics(
+                    label: 'Group agents',
+                    child: Icon(
+                      LucideIcons.layers,
+                      size: 22,
+                      color: context.colors.ink2,
+                    ),
+                  ),
+                ),
+                CupertinoButton(
+                  padding: const EdgeInsets.all(10),
+                  minimumSize: const Size(44, 44),
+                  onPressed: () => context.push('/settings'),
+                  child: Semantics(
+                    label: 'Settings',
+                    child: Icon(
+                      LucideIcons.settings,
+                      size: 22,
+                      color: context.colors.ink2,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          CupertinoSliverRefreshControl(onRefresh: vm.refresh),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: _ConnectionLine(relay: vm.relay),
+            ),
+          ),
+          const SliverToBoxAdapter(child: UpdateBanner()),
+          if (state is HomeList && state.relay == HomeRelay.offline)
+            SliverToBoxAdapter(
+              child: AppBanner(
+                message: 'Relay offline — showing last known state',
+                actionLabel: 'Retry',
+                onAction: vm.retry,
+              ),
+            ),
+          switch (state) {
+            HomeLoading() => const SliverToBoxAdapter(child: HomeSkeleton()),
+            HomeNoPeer() => const SliverFillRemaining(
+              hasScrollBody: false,
+              child: HomeNoMachine(),
+            ),
+            HomeList() => _list(context, vm, state),
+          },
+          SliverToBoxAdapter(
+            child: SizedBox(height: MediaQuery.paddingOf(context).bottom + 24),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _list(BuildContext context, HomeViewModel vm, HomeList state) {
+    final groups = state.groups(normalizeEpk: toStandardB64);
+    final children = <Widget>[];
+    for (final group in groups) {
+      children.add(
+        AgentSectionHeader(label: group.label, summary: _summary(group, state)),
+      );
+      final rows = <Widget>[];
+      if (group.items.isEmpty) {
+        rows.add(
+          HomeNoAgents(
+            machine: group.label,
+            highlighted:
+                group.peer?.remoteEpk == _highlightedEpk &&
+                _highlightedEpk != null,
+          ),
+        );
+      } else {
+        for (var i = 0; i < group.items.length; i++) {
+          final item = group.items[i];
+          if (i > 0) {
+            rows.add(
+              Padding(
+                padding: const EdgeInsets.only(left: 56),
+                child: Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: context.colors.hairline,
+                ),
+              ),
+            );
+          }
+          rows.add(
+            AgentRow(
+              key: ValueKey(item.key),
+              item: item,
+              highlighted:
+                  item.peer.remoteEpk == _highlightedEpk &&
+                  _highlightedEpk != null,
+              showMachine: state.grouping == HomeGrouping.project,
+              selected:
+                  isWideLayout(context) &&
+                  context.watch<SessionSelection>().matches(
+                    item.peer.remoteEpk,
+                    item.room.roomId,
+                  ),
+              staleSince: state.staleSince,
+              now: state.now,
+              onOpen: () => _open(context, vm, item.peer, item.room),
+            ),
+          );
+        }
+      }
+      final highlighted =
+          group.peer?.remoteEpk == _highlightedEpk && _highlightedEpk != null;
+      children.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: AnimatedContainer(
+            key: ValueKey('machine-card-${group.key}'),
+            duration: Duration(
+              milliseconds: MediaQuery.disableAnimationsOf(context) ? 150 : 250,
+            ),
+            curve: Curves.easeInOutCubic,
+            decoration: BoxDecoration(
+              color: highlighted
+                  ? context.colors.surface2
+                  : context.colors.surface,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Column(children: rows),
+            ),
+          ),
+        ),
       );
     }
-
-    // Build the per-peer groups over the VISIBLE items: each group is
-    // [header, tile, tile, …]. Plan-18 follow-up — always include a header
-    // even when there's a single Mac, per the mock. A peer with no visible
-    // item in this filter contributes no header (the `lastEpk` cursor only
-    // advances on rows we actually render).
-    final children = <Widget>[];
-    String? lastEpk;
-    for (final it in visible) {
-      if (it.peer.remoteEpk != lastEpk) {
-        children.add(PeerSectionHeader(peer: it.peer));
-        lastEpk = it.peer.remoteEpk;
+    // Project grouping has no project to name until rooms are announced.
+    if (groups.isEmpty && state.filter == HomeFilter.all) {
+      for (final peer in state.peers) {
+        children.add(PeerSectionHeader(peer: peer));
+        children.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: HomeNoAgents(machine: machineLabel(peer)),
+          ),
+        );
       }
-      children.add(_buildItemRowAt(context, vm, state, it));
     }
     return SliverMainAxisGroup(
       slivers: [
-        tabs,
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
-          sliver: SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (ctx, i) => children[i],
-              childCount: children.length,
-            ),
+        SliverToBoxAdapter(
+          child: HomeFilterTabs(
+            filter: state.filter,
+            counts: vm.counts,
+            stale: state.relay != HomeRelay.connected,
+            onSelected: vm.setFilter,
           ),
         ),
+        if (groups.isEmpty && state.filter != HomeFilter.all)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: HomeFilterEmptyState(
+              filter: state.filter,
+              onShowAll: () => vm.setFilter(HomeFilter.all),
+            ),
+          )
+        else
+          SliverList.list(children: children),
       ],
     );
   }
 
-  Widget _buildItemRowAt(
+  String _summary(HomeGroup group, HomeList state) {
+    final now = state.now ?? DateTime.now();
+    if (state.relay != HomeRelay.connected) {
+      return 'Last known · as of ${activityTime(state.staleSince, now)}';
+    }
+    final peer = group.peer;
+    final presence = peer == null
+        ? null
+        : state.statusByEpk[toStandardB64(peer.remoteEpk)];
+    if (presence is PresenceOffline) {
+      final at = presence.sinceTs;
+      return at == null
+          ? 'Offline'
+          : 'Offline · seen ${activityTime(DateTime.fromMillisecondsSinceEpoch(at), now)} ago';
+    }
+    final working = group.items
+        .where((i) => i.lastKnownStatus == AgentStatus.working)
+        .length;
+    final online = group.items
+        .where((i) => i.lastKnownStatus == AgentStatus.online)
+        .length;
+    if (working > 0 || online > 0) return '$working working · $online online';
+    if (group.items.any((i) => i.lastKnownStatus == AgentStatus.checking)) {
+      return 'Checking';
+    }
+    return group.items.isEmpty ? '' : 'Offline';
+  }
+
+  void _showGrouping(
     BuildContext context,
     HomeViewModel vm,
-    HomeList state,
-    HomeItem it,
+    HomeGrouping grouping,
   ) {
-    final colors = context.colors;
-    final isLive = vm.isRoomLive(it.peer.remoteEpk, it.room.roomId);
-    final isReconnecting = !vm.isRelayConnected;
-    final isWorking = vm.isRoomWorking(it.peer.remoteEpk, it.room.roomId);
-    // Plan/tablet — highlight the open session, but only in the two-pane
-    // layout (on phone the list is covered by the pushed chat, so a
-    // persistent highlight would be meaningless).
-    final isSelected =
-        isWideLayout(context) &&
-        context.watch<SessionSelection>().matches(
-          it.peer.remoteEpk,
-          it.room.roomId,
-        );
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SessionTile(
-          peer: it.peer,
-          isLive: isLive,
-          isReconnecting: isReconnecting,
-          isWorking: isWorking,
-          isSelected: isSelected,
-          room: it.room,
-          onOpen: () => _open(context, vm, it.peer, it.room),
-          onLongPress: () => _showSessionMenu(context, vm, it, isLive: isLive),
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        actions: [
+          for (final value in HomeGrouping.values)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.of(sheetContext).pop();
+                vm.setGrouping(value);
+              },
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    value == HomeGrouping.machine
+                        ? 'Group by machine'
+                        : 'Group by project',
+                    style: context.typo.body.copyWith(
+                      color: context.colors.accent,
+                    ),
+                  ),
+                  if (grouping == value)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Icon(
+                        LucideIcons.check,
+                        size: 20,
+                        color: context.colors.accent,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: const Text('Cancel'),
         ),
-        Divider(color: colors.border, height: 1),
-      ],
+      ),
     );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Long-press menu (preserved from prior plan-17 wiring)
-  // ---------------------------------------------------------------------------
-
-  void _showSessionMenu(
-    BuildContext context,
-    HomeViewModel vm,
-    HomeItem it, {
-    required bool isLive,
-  }) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: context.colors.bg,
-      builder: (sheetCtx) {
-        final colors = sheetCtx.colors;
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: Icon(LucideIcons.pencil, color: colors.accent),
-                title: Text(
-                  'Rename session',
-                  style: TextStyle(color: colors.text),
-                ),
-                onTap: () {
-                  Navigator.of(sheetCtx).pop();
-                  _promptRename(context, vm, it);
-                },
-              ),
-              ListTile(
-                leading: Icon(
-                  LucideIcons.trash2,
-                  color: isLive ? colors.muted : colors.error,
-                ),
-                enabled: !isLive,
-                title: Text(
-                  'Delete session (local only)',
-                  style: TextStyle(color: isLive ? colors.muted : colors.text),
-                ),
-                subtitle: isLive
-                    ? Text(
-                        'Only available when the room is offline',
-                        style: TextStyle(color: colors.muted, fontSize: 11),
-                      )
-                    : null,
-                onTap: isLive
-                    ? null
-                    : () {
-                        Navigator.of(sheetCtx).pop();
-                        _confirmDelete(context, vm, it);
-                      },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _promptRename(
-    BuildContext context,
-    HomeViewModel vm,
-    HomeItem it,
-  ) async {
-    final controller = TextEditingController(text: it.room.name ?? '');
-    final result = await showDialog<String?>(
-      context: context,
-      builder: (dCtx) {
-        final colors = dCtx.colors;
-        return AlertDialog(
-          backgroundColor: colors.bg,
-          title: Text('Rename session', style: TextStyle(color: colors.text)),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            style: TextStyle(color: colors.text, fontFamily: kMonoFamily),
-            decoration: InputDecoration(
-              hintText: it.room.cwd ?? 'Session',
-              hintStyle: TextStyle(color: colors.muted),
-              enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: colors.border),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: colors.accent),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dCtx).pop(null),
-              child: Text('Cancel', style: TextStyle(color: colors.muted)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dCtx).pop(controller.text.trim()),
-              child: Text('Save', style: TextStyle(color: colors.accent)),
-            ),
-          ],
-        );
-      },
-    );
-    if (result == null) return;
-    await vm.renameRoom(it.peer.remoteEpk, it.room.roomId, result);
-  }
-
-  Future<void> _confirmDelete(
-    BuildContext context,
-    HomeViewModel vm,
-    HomeItem it,
-  ) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dCtx) {
-        final colors = dCtx.colors;
-        return AlertDialog(
-          backgroundColor: colors.bg,
-          title: Text('Delete session?', style: TextStyle(color: colors.text)),
-          content: Text(
-            'Removes locally only. If the session comes back online on '
-            'the Pi, it reappears in the list.',
-            style: TextStyle(color: colors.muted, fontSize: 12),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dCtx).pop(false),
-              child: Text('Cancel', style: TextStyle(color: colors.muted)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dCtx).pop(true),
-              child: Text('Delete', style: TextStyle(color: colors.error)),
-            ),
-          ],
-        );
-      },
-    );
-    if (ok != true) return;
-    await vm.deleteRoom(it.peer.remoteEpk, it.room.roomId);
   }
 
   static Future<void> _open(
@@ -579,93 +409,129 @@ class HomePage extends StatelessWidget {
   }
 }
 
-/// Plan-17 follow-up — soft empty state for paired-but-no-rooms.
-class _LonelyEmptyState extends StatelessWidget {
-  const _LonelyEmptyState();
-
+class _ConnectionLine extends StatelessWidget {
+  const _ConnectionLine({required this.relay});
+  final HomeRelay relay;
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: kMaxContentWidth),
-        child: Opacity(
-          opacity: 0.35,
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+    final c = context.colors;
+    return Row(
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: switch (relay) {
+              HomeRelay.connected => c.online,
+              HomeRelay.connecting => c.ink3,
+              HomeRelay.offline => c.error,
+            },
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          switch (relay) {
+            HomeRelay.connected => 'Relay connected',
+            HomeRelay.connecting => 'Connecting…',
+            HomeRelay.offline => 'Relay offline · retrying',
+          },
+          style: context.typo.footnote.copyWith(
+            color: switch (relay) {
+              HomeRelay.connected => c.ink2,
+              HomeRelay.connecting => c.ink3,
+              HomeRelay.offline => c.error,
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class HomeNoMachine extends StatelessWidget {
+  const HomeNoMachine({super.key});
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: Stack(
               children: [
-                Icon(LucideIcons.moon, color: colors.muted, size: 56),
-                const SizedBox(height: 18),
-                Text(
-                  'Nothing here…',
-                  style: TextStyle(
-                    fontFamily: kMonoFamily,
-                    color: colors.muted2,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 4,
+                  child: Container(height: 2, color: context.colors.ink),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'When a paired Pi opens a session, it shows up here.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: kMonoFamily,
-                    color: colors.muted,
-                    fontSize: 11,
-                    height: 1.4,
+                Positioned(
+                  left: 14,
+                  bottom: 6,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: context.colors.working,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-        ),
+          const SizedBox(height: 16),
+          Text('No machines yet', style: context.typo.title2),
+          const SizedBox(height: 8),
+          Text(
+            'Pair the Pi on your Mac to see its agents here.',
+            textAlign: TextAlign.center,
+            style: context.typo.body.copyWith(color: context.colors.ink2),
+          ),
+          const SizedBox(height: 24),
+          PrimaryButton(
+            label: 'Pair a machine',
+            onPressed: () => context.push('/pair'),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-
+class HomeNoAgents extends StatelessWidget {
+  const HomeNoAgents({
+    super.key,
+    required this.machine,
+    this.highlighted = false,
+  });
+  final String machine;
+  final bool highlighted;
   @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: kMaxContentWidth),
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(LucideIcons.scanQrCode, color: colors.muted, size: 48),
-              const SizedBox(height: 16),
-              Text(
-                'No pairings yet',
-                style: TextStyle(color: colors.muted2, fontSize: 14),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Scan a QR from your Mac to start.',
-                style: TextStyle(color: colors.muted, fontSize: 12),
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: () => context.push('/pair'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: colors.accent,
-                  foregroundColor: colors.onAccent,
-                ),
-                icon: const Icon(LucideIcons.scanQrCode, size: 18),
-                label: const Text('Scan QR'),
-              ),
-            ],
-          ),
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: highlighted ? context.colors.surface2 : context.colors.surface,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'No agents running on $machine',
+          style: context.typo.footnote.copyWith(color: context.colors.ink2),
         ),
-      ),
-    );
-  }
+        const SizedBox(height: 8),
+        Text(
+          'Open Pi and run /remote-pi',
+          style: context.typo.caption.copyWith(color: context.colors.ink2),
+        ),
+      ],
+    ),
+  );
 }

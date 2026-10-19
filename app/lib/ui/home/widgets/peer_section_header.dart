@@ -1,34 +1,46 @@
 import 'package:app/pairing/storage.dart';
 import 'package:app/ui/core/themes/themes.dart';
-import 'package:flutter/material.dart';
+import 'package:app/ui/home/states/home_state.dart';
+import 'package:flutter/widgets.dart';
 
-/// Per-pairing section header on the Home list (one per Pi). Shows the device
-/// label (nickname → sessionName → epk prefix). The old `via <harness>`
-/// subtitle was dropped as redundant.
 class PeerSectionHeader extends StatelessWidget {
+  const PeerSectionHeader({super.key, required this.peer, this.summary = ''});
   final PeerRecord peer;
-  const PeerSectionHeader({super.key, required this.peer});
-
+  final String summary;
   @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    final label = (peer.nickname?.isNotEmpty ?? false)
-        ? peer.nickname!
-        : peer.sessionName.isNotEmpty
-            ? peer.sessionName
-            : peer.remoteEpk.substring(0, 8);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
-      child: Text(
-        label.toUpperCase(),
-        style: TextStyle(
-          fontFamily: kMonoFamily,
-          fontSize: 11,
-          color: colors.muted,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 1.0,
+  Widget build(BuildContext context) =>
+      AgentSectionHeader(label: machineLabel(peer), summary: summary);
+}
+
+class AgentSectionHeader extends StatelessWidget {
+  const AgentSectionHeader({super.key, required this.label, this.summary = ''});
+  final String label;
+  final String summary;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            label.toUpperCase(),
+            style: context.typo.sectionLabel,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-      ),
-    );
-  }
+        if (summary.isNotEmpty) ...[
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              summary,
+              style: context.typo.caption.copyWith(color: context.colors.ink2),
+              maxLines: 2,
+              textAlign: TextAlign.end,
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
 }

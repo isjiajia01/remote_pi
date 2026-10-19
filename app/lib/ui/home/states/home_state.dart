@@ -1,19 +1,17 @@
+import 'package:app/data/local/records/session_index_record.dart';
+import 'package:app/data/preferences/preferences.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/protocol/protocol.dart';
+import 'package:app/ui/core/widgets/status_dot.dart';
 import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 
 sealed class HomeState {
   const HomeState();
 }
 
-/// Plan-38 Fase 3 — which presence slice of the Home list is shown.
-/// Pure view filter over the existing (peer → room) list; the tabs never
-/// reload or regroup data. Default is [online] (see [HomeList.filter]).
-///
-///   - [all]     — every known session (live + cached/offline).
-///   - [online]  — only sessions live on the relay right now.
-///   - [offline] — only cached sessions that aren't live.
-enum HomeFilter { all, online, offline }
+enum HomeFilter { all, working, online, offline }
+
+enum HomeRelay { connected, connecting, offline }
 
 class HomeLoading extends HomeState {
   const HomeLoading();
@@ -23,146 +21,244 @@ class HomeNoPeer extends HomeState {
   const HomeNoPeer();
 }
 
-/// Plan 17 — single row on Home: a Pi room (per-cwd session) bound to
-/// a paired Mac. Multiple HomeItems per peer when the Mac runs more
-/// than one Pi session. When `roomId == 'main'` (the only room from a
-/// legacy/single-cwd Pi), the UI may collapse the cwd subtitle.
+String machineLabel(PeerRecord peer) =>
+    (peer.nickname?.isNotEmpty ?? false) ? peer.nickname! : peer.sessionName;
+
+String projectLabel(RoomInfo room) =>
+    room.cwd?.split('/').where((s) => s.isNotEmpty).lastOrNull ??
+    'Unknown project';
+
+/// Presence and room announcement both gate reachability. Missing working
+/// metadata on a live agent means Online, never Idle.
+AgentStatus deriveAgentStatus({
+  required PresenceState presence,
+  required bool announced,
+  required bool working,
+}) {
+  if (presence is PresenceOffline || !announced) return AgentStatus.offline;
+  if (presence is PresenceUnknown) return AgentStatus.checking;
+  return working ? AgentStatus.working : AgentStatus.online;
+}
+
 class HomeItem {
   final PeerRecord peer;
   final RoomInfo room;
+  final AgentStatus lastKnownStatus;
+  final bool stale;
+  final SessionIndexRecord? activity;
 
-  const HomeItem({required this.peer, required this.room});
+  const HomeItem({
+    required this.peer,
+    required this.room,
+    this.lastKnownStatus = AgentStatus.checking,
+    this.stale = false,
+    this.activity,
+  });
 
-  /// Display name preference: explicit room.name → cwd basename →
-  /// `<peer-nickname>` → fallback session_name.
+  String get key => '${peer.remoteEpk}:${room.roomId}';
+  AgentStatus get status => stale ? AgentStatus.stale : lastKnownStatus;
   String get displayName {
-    if (room.name != null && room.name!.isNotEmpty) return room.name!;
-    final cwd = room.cwd;
-    if (cwd != null && cwd.isNotEmpty) {
-      final last = cwd.split('/').where((s) => s.isNotEmpty).toList();
-      if (last.isNotEmpty) return last.last;
-    }
-    if (peer.nickname != null && peer.nickname!.isNotEmpty) {
-      return peer.nickname!;
-    }
-    return peer.sessionName;
+    if (room.name?.isNotEmpty ?? false) return room.name!;
+    if (room.cwd?.isNotEmpty ?? false) return projectLabel(room);
+    return machineLabel(peer);
   }
 
   @override
   bool operator ==(Object other) =>
       other is HomeItem &&
       other.peer.remoteEpk == peer.remoteEpk &&
-      other.room == room;
+      other.room == room &&
+      other.lastKnownStatus == lastKnownStatus &&
+      other.stale == stale &&
+      other.activity == activity;
 
   @override
-  int get hashCode => Object.hash(peer.remoteEpk, room);
+  int get hashCode =>
+      Object.hash(peer.remoteEpk, room, lastKnownStatus, stale, activity);
 }
 
-/// Paired peers + their live rooms + presence. Items are derived from
-/// `roomsByPeer`: a peer with no announced rooms yet still gets one
-/// synthetic item (`roomId='main'`) so the user can enter chat — that
-/// covers legacy Pis and the pre-room-announce window after reconnect.
+int compareHomeItems(HomeItem a, HomeItem b) {
+  int rank(AgentStatus status) => switch (status) {
+    AgentStatus.working => 0,
+    AgentStatus.online => 1,
+    AgentStatus.checking || AgentStatus.unknown => 2,
+    AgentStatus.offline || AgentStatus.stale => 3,
+  };
+  final status = rank(a.lastKnownStatus).compareTo(rank(b.lastKnownStatus));
+  if (status != 0) return status;
+  final activity = (b.activity?.lastMessageAt?.millisecondsSinceEpoch ?? 0)
+      .compareTo(a.activity?.lastMessageAt?.millisecondsSinceEpoch ?? 0);
+  if (activity != 0) return activity;
+  final name = a.displayName.toLowerCase().compareTo(
+    b.displayName.toLowerCase(),
+  );
+  return name != 0 ? name : a.key.compareTo(b.key);
+}
+
+class HomeGroup {
+  const HomeGroup({
+    required this.key,
+    required this.label,
+    required this.items,
+    this.peer,
+  });
+  final String key;
+  final String label;
+  final List<HomeItem> items;
+  final PeerRecord? peer;
+  bool get hasWorking =>
+      items.any((i) => i.lastKnownStatus == AgentStatus.working);
+}
+
 class HomeList extends HomeState {
   final List<PeerRecord> peers;
   final Map<String, PresenceState> statusByEpk;
   final Map<String, List<RoomInfo>> roomsByPeer;
 
-  /// Plan-38 Fase 3 — the selected presence tab. Part of the immutable
-  /// state (per the `ViewModel<T>` pattern) so the choice is reactive and
-  /// survives presence/rooms/status re-emits. Default [HomeFilter.online].
+  /// Keys use the storage EPK spelling, like HomeItem.key. These are retained
+  /// through relay loss rather than replacing last-known status with Offline.
+  final Map<String, AgentStatus> statusesByRoom;
+  final Map<String, SessionIndexRecord> activityByRoom;
   final HomeFilter filter;
+  final HomeGrouping grouping;
+  final HomeRelay relay;
+  final DateTime? staleSince;
+  final DateTime? now;
 
   const HomeList({
     required this.peers,
     this.statusByEpk = const {},
     this.roomsByPeer = const {},
-    this.filter = HomeFilter.online,
+    this.statusesByRoom = const {},
+    this.activityByRoom = const {},
+    this.filter = HomeFilter.all,
+    this.grouping = HomeGrouping.machine,
+    this.relay = HomeRelay.connecting,
+    this.staleSince,
+    this.now,
   });
 
   HomeList copyWith({
     List<PeerRecord>? peers,
     Map<String, PresenceState>? statusByEpk,
     Map<String, List<RoomInfo>>? roomsByPeer,
+    Map<String, AgentStatus>? statusesByRoom,
+    Map<String, SessionIndexRecord>? activityByRoom,
     HomeFilter? filter,
+    HomeGrouping? grouping,
+    HomeRelay? relay,
+    DateTime? staleSince,
+    DateTime? now,
   }) => HomeList(
     peers: peers ?? this.peers,
     statusByEpk: statusByEpk ?? this.statusByEpk,
     roomsByPeer: roomsByPeer ?? this.roomsByPeer,
+    statusesByRoom: statusesByRoom ?? this.statusesByRoom,
+    activityByRoom: activityByRoom ?? this.activityByRoom,
     filter: filter ?? this.filter,
+    grouping: grouping ?? this.grouping,
+    relay: relay ?? this.relay,
+    staleSince: staleSince ?? this.staleSince,
+    now: now ?? this.now,
   );
 
-  /// Flatten to a single ordered list of items: one row per (peer, room).
-  /// **Plan-17 follow-up**: peers without any currently-announced rooms
-  /// produce ZERO items. Earlier behaviour created a synthetic 'main'
-  /// tile for legacy compatibility, but that tile pointed at a (peer,
-  /// 'main') destination the Pi was no longer listening on — sending
-  /// there got dropped by the relay AND the row felt like a ghost. The
-  /// user only wants live rooms in the list.
-  ///
-  /// Ordering: peers are sorted by display name (nickname → sessionName
-  /// → epk prefix), case-insensitive. Within each peer, rooms are
-  /// sorted by their display name (room.name → cwd basename → roomId),
-  /// also case-insensitive. Keeps the list stable and predictable as
-  /// the relay reorders its push payloads.
   List<HomeItem> items({String Function(String)? normalizeEpk}) {
-    final sortedPeers = [...peers]
-      ..sort(
-        (a, b) =>
-            _peerLabel(a).toLowerCase().compareTo(_peerLabel(b).toLowerCase()),
-      );
     final out = <HomeItem>[];
-    for (final p in sortedPeers) {
-      final key = normalizeEpk != null
-          ? normalizeEpk(p.remoteEpk)
-          : p.remoteEpk;
-      final rooms = roomsByPeer[key];
-      if (rooms == null || rooms.isEmpty) continue;
-      final sortedRooms = [...rooms]
-        ..sort(
-          (a, b) => _roomLabel(
-            a,
-          ).toLowerCase().compareTo(_roomLabel(b).toLowerCase()),
+    for (final peer in peers) {
+      final epk = normalizeEpk?.call(peer.remoteEpk) ?? peer.remoteEpk;
+      for (final room in roomsByPeer[epk] ?? <RoomInfo>[]) {
+        final key = '${peer.remoteEpk}:${room.roomId}';
+        out.add(
+          HomeItem(
+            peer: peer,
+            room: room,
+            lastKnownStatus: statusesByRoom[key] ?? AgentStatus.checking,
+            stale: relay != HomeRelay.connected,
+            activity: activityByRoom['$epk:${room.roomId}'],
+          ),
         );
-      for (final r in sortedRooms) {
-        out.add(HomeItem(peer: p, room: r));
       }
     }
+    out.sort(compareHomeItems);
     return out;
   }
 
-  static String _peerLabel(PeerRecord p) {
-    if (p.nickname != null && p.nickname!.isNotEmpty) return p.nickname!;
-    if (p.sessionName.isNotEmpty) return p.sessionName;
-    return p.remoteEpk;
-  }
+  List<HomeItem> visibleItems({String Function(String)? normalizeEpk}) =>
+      items(normalizeEpk: normalizeEpk)
+          .where(
+            (i) => switch (filter) {
+              HomeFilter.all => true,
+              HomeFilter.working => i.lastKnownStatus == AgentStatus.working,
+              HomeFilter.online => i.lastKnownStatus == AgentStatus.online,
+              HomeFilter.offline => i.lastKnownStatus == AgentStatus.offline,
+            },
+          )
+          .toList();
 
-  static String _roomLabel(RoomInfo r) {
-    if (r.name != null && r.name!.isNotEmpty) return r.name!;
-    final cwd = r.cwd;
-    if (cwd != null && cwd.isNotEmpty) {
-      final segs = cwd.split('/').where((s) => s.isNotEmpty).toList();
-      if (segs.isNotEmpty) return segs.last;
+  List<HomeGroup> groups({String Function(String)? normalizeEpk}) {
+    final itemsByGroup = <String, List<HomeItem>>{};
+    final labels = <String, String>{};
+    final peersByGroup = <String, PeerRecord>{};
+    if (grouping == HomeGrouping.machine && filter == HomeFilter.all) {
+      for (final peer in peers) {
+        itemsByGroup[peer.remoteEpk] = [];
+        labels[peer.remoteEpk] = machineLabel(peer);
+        peersByGroup[peer.remoteEpk] = peer;
+      }
     }
-    return r.roomId;
+    for (final item in visibleItems(normalizeEpk: normalizeEpk)) {
+      final key = grouping == HomeGrouping.machine
+          ? item.peer.remoteEpk
+          : projectLabel(item.room);
+      (itemsByGroup[key] ??= []).add(item);
+      labels[key] = grouping == HomeGrouping.machine
+          ? machineLabel(item.peer)
+          : key;
+      if (grouping == HomeGrouping.machine) peersByGroup[key] = item.peer;
+    }
+    final groups = [
+      for (final entry in itemsByGroup.entries)
+        HomeGroup(
+          key: entry.key,
+          label: labels[entry.key]!,
+          items: entry.value,
+          peer: peersByGroup[entry.key],
+        ),
+    ];
+    groups.sort((a, b) {
+      if (a.hasWorking != b.hasWorking) return a.hasWorking ? -1 : 1;
+      return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+    });
+    return groups;
   }
 
   @override
   bool operator ==(Object other) =>
       other is HomeList &&
       other.filter == filter &&
+      other.grouping == grouping &&
+      other.relay == relay &&
+      other.staleSince == staleSince &&
+      other.now == now &&
       listEquals(other.peers, peers) &&
       mapEquals(other.statusByEpk, statusByEpk) &&
-      mapEquals(other.roomsByPeer, roomsByPeer);
+      mapEquals(other.roomsByPeer, roomsByPeer) &&
+      mapEquals(other.statusesByRoom, statusesByRoom) &&
+      mapEquals(other.activityByRoom, activityByRoom);
 
   @override
   int get hashCode => Object.hash(
     filter,
+    grouping,
+    relay,
+    staleSince,
+    now,
     Object.hashAll(peers),
     Object.hashAllUnordered(
-      statusByEpk.entries.map((e) => '${e.key}:${e.value.runtimeType}'),
+      statusesByRoom.entries.map((e) => Object.hash(e.key, e.value)),
     ),
     Object.hashAllUnordered(
-      roomsByPeer.entries.map((e) => '${e.key}:${e.value.length}'),
+      activityByRoom.entries.map((e) => Object.hash(e.key, e.value)),
     ),
   );
 }
