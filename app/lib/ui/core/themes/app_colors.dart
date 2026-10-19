@@ -1,195 +1,134 @@
 import 'package:flutter/material.dart';
 
-/// Semantic color tokens for the whole app.
-///
-/// This is the SINGLE source of truth for every color used in the UI. Widgets
-/// must never hardcode `Color(0x…)` or `Colors.*` — they read from here via
-/// `context.colors.<token>` (see `theme_extensions.dart`).
-///
-/// Registered on [ThemeData.extensions] by `buildDarkTheme()` /
-/// `buildLightTheme()` so `Theme.of(context).extension<AppColors>()` resolves
-/// the right palette for the active brightness.
-///
-/// Design tokens originate from `app/wareframe/screens.jsx` (dark). The light
-/// palette is a first-pass derivation — tune the hexes here, in one place.
+/// Perch's light and dark semantic palette, defined in docs/DESIGN.md.
+/// Widgets consume these tokens through `context.colors`.
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
   const AppColors({
     required this.bg,
     required this.surface,
-    required this.border,
-    required this.text,
-    required this.muted,
-    required this.muted2,
+    required this.surface2,
+    required this.hairline,
+    required this.ink,
+    required this.ink2,
+    required this.ink3,
     required this.accent,
     required this.onAccent,
-    required this.highlight,
-    required this.success,
-    required this.error,
-    required this.warning,
     required this.working,
-    required this.codeBg,
+    required this.workingSoft,
+    required this.online,
+    required this.error,
+    required this.errorSoft,
     required this.userBubble,
-    required this.modelBadgeBg,
-    required this.modelBadgeBorder,
-    required this.denyBorder,
-    required this.inputFill,
+    required this.codeInk,
   });
 
-  /// App background (scaffold). Was `kBg`.
   final Color bg;
-
-  /// Slightly raised surface (cards, sheets). Was `kSurface`.
   final Color surface;
-
-  /// Hairline borders / dividers. Was `kBorder`.
-  final Color border;
-
-  /// Primary foreground text. Was `kText`.
-  final Color text;
-
-  /// Secondary / de-emphasized text. Was `kMuted`.
-  final Color muted;
-
-  /// Tertiary text — slightly more prominent than [muted]. Was `kMuted2`.
-  final Color muted2;
-
-  /// Brand accent (links, active states, primary buttons). Was `kAccent`.
+  final Color surface2;
+  final Color hairline;
+  final Color ink;
+  final Color ink2;
+  final Color ink3;
   final Color accent;
-
-  /// Foreground painted on top of [accent] (e.g. filled-button label). Was the
-  /// hardcoded `Colors.black` / `onPrimary`.
   final Color onAccent;
-
-  /// Code / file paths inside agent messages. Was `kHighlight`.
-  final Color highlight;
-
-  /// Success state (✓ tool results). Was `kSuccess`.
-  final Color success;
-
-  /// Error / destructive state (✗ tool results, failed sends, delete). Was
-  /// `kError` and the scattered `Colors.redAccent`.
-  final Color error;
-
-  /// Warning state (relay offline). Was the scattered `Colors.amber`.
-  final Color warning;
-
-  /// "Working" / in-progress accent (session running a turn). Was the local
-  /// `kWorking = Color(0xFF3FA9F5)` duplicated in session_tile and chat_page.
   final Color working;
-
-  /// Background of inline/he block code. Was `kCodeBg`.
-  final Color codeBg;
-
-  /// User chat bubble background. Was `kUserBubble`.
+  final Color workingSoft;
+  final Color online;
+  final Color error;
+  final Color errorSoft;
   final Color userBubble;
+  final Color codeInk;
 
-  /// Model badge background. Was `kModelBadgeBg`.
-  final Color modelBadgeBg;
+  // Compatibility aliases while screens migrate to the Phase 2 components.
+  // Warnings stay neutral; amber is reserved for in-flight agent turns.
+  Color get border => hairline;
+  Color get text => ink;
+  Color get muted => ink2;
+  Color get muted2 => ink2;
+  Color get highlight => codeInk;
+  Color get success => online;
+  Color get warning => ink2;
+  Color get codeBg => surface2;
+  Color get modelBadgeBg => surface2;
+  Color get modelBadgeBorder => hairline;
+  Color get denyBorder => hairline;
+  Color get inputFill => surface2;
 
-  /// Model badge border. Was `kModelBadgeBorder`.
-  final Color modelBadgeBorder;
-
-  /// Border for a denied tool-call card. Was `kDenyBorder`.
-  final Color denyBorder;
-
-  /// Text-field fill. Was the hardcoded `Color(0xFF0E0E0E)`.
-  final Color inputFill;
-
-  /// Dark palette (default). Mirrors the original `app_theme.dart` constants.
-  static const AppColors dark = AppColors(
-    bg: Color(0xFF000000),
-    surface: Color(0xFF0A0A0A),
-    border: Color(0xFF1A1A1A),
-    text: Color(0xFFFFFFFF),
-    muted: Color(0xFF6B6B6B),
-    muted2: Color(0xFF8A8A8A),
-    accent: Color(0xFF00D4FF),
-    onAccent: Color(0xFF000000),
-    highlight: Color(0xFF9FE6FF),
-    success: Color(0xFF6CD28A),
-    error: Color(0xFFE5484D),
-    warning: Color(0xFFFFB300),
-    working: Color(0xFF3FA9F5),
-    codeBg: Color(0xFF050505),
-    userBubble: Color(0xFF1A1A1A),
-    modelBadgeBg: Color(0xFF161616),
-    modelBadgeBorder: Color(0xFF1F1F1F),
-    denyBorder: Color(0xFF2A2A2A),
-    inputFill: Color(0xFF0E0E0E),
+  static const AppColors light = AppColors(
+    bg: Color(0xFFF4F2EC),
+    surface: Color(0xFFFFFFFF),
+    surface2: Color(0xFFECEAE3),
+    hairline: Color(0xFFDAD7CE),
+    ink: Color(0xFF1A1C1E),
+    ink2: Color(0xFF5E6166),
+    ink3: Color(0xFF85888D),
+    accent: Color(0xFF1D5FC4),
+    onAccent: Color(0xFFFFFFFF),
+    working: Color(0xFFA65D00),
+    workingSoft: Color(0xFFFBEBD3),
+    online: Color(0xFF2F7D4F),
+    error: Color(0xFFC2302B),
+    errorSoft: Color(0xFFFBE3E1),
+    userBubble: Color(0xFFE3E9F6),
+    codeInk: Color(0xFF2B3A55),
   );
 
-  /// Light palette — derived from [dark]. Foreground tints are tuned for
-  /// WCAG-AA contrast on the white [bg] (≥4.5:1 for body, ≥3:1 for large/UI):
-  /// `muted`/`muted2` are dark grays (not the dark-theme mid-grays, which were
-  /// washed out on white), and `accent`/`highlight` are deepened cyans so
-  /// accent-colored *text* (links, "Use default" buttons) stays legible.
-  static const AppColors light = AppColors(
-    bg: Color(0xFFFFFFFF),
-    surface: Color(0xFFF4F4F5),
-    border: Color(0xFFDADADD),
-    text: Color(0xFF0A0A0A),
-    muted: Color(0xFF565656), // ~7:1 on white (was 0xFF6B6B6B, ~4:1)
-    muted2: Color(0xFF424242), // ~9:1 on white
-    accent: Color(0xFF0077A3), // ~4.6:1 on white — legible as text AND fill
-    onAccent: Color(0xFFFFFFFF),
-    highlight: Color(0xFF005F82), // code/paths — deeper for body contrast
-    success: Color(0xFF1E7A41),
-    error: Color(0xFFC42026),
-    warning: Color(0xFF9A6300),
-    working: Color(0xFF1A6CB0),
-    codeBg: Color(0xFFF0F0F0),
-    userBubble: Color(0xFFEAEAEC),
-    modelBadgeBg: Color(0xFFEDEDEF),
-    modelBadgeBorder: Color(0xFFD7D7DA),
-    denyBorder: Color(0xFFC9C9CD),
-    inputFill: Color(0xFFF0F0F2),
+  static const AppColors dark = AppColors(
+    bg: Color(0xFF0F1012),
+    surface: Color(0xFF1A1C1F),
+    surface2: Color(0xFF24272B),
+    hairline: Color(0xFF2E3135),
+    ink: Color(0xFFECEAE4),
+    ink2: Color(0xFF9DA0A6),
+    ink3: Color(0xFF6C7075),
+    accent: Color(0xFF7FAEFF),
+    onAccent: Color(0xFF0F1012),
+    working: Color(0xFFF2A93B),
+    workingSoft: Color(0xFF33270F),
+    online: Color(0xFF5FC98A),
+    error: Color(0xFFFF6B61),
+    errorSoft: Color(0xFF3A1C1A),
+    userBubble: Color(0xFF1E2A40),
+    codeInk: Color(0xFFB9CCF0),
   );
 
   @override
   AppColors copyWith({
     Color? bg,
     Color? surface,
-    Color? border,
-    Color? text,
-    Color? muted,
-    Color? muted2,
+    Color? surface2,
+    Color? hairline,
+    Color? ink,
+    Color? ink2,
+    Color? ink3,
     Color? accent,
     Color? onAccent,
-    Color? highlight,
-    Color? success,
-    Color? error,
-    Color? warning,
     Color? working,
-    Color? codeBg,
+    Color? workingSoft,
+    Color? online,
+    Color? error,
+    Color? errorSoft,
     Color? userBubble,
-    Color? modelBadgeBg,
-    Color? modelBadgeBorder,
-    Color? denyBorder,
-    Color? inputFill,
-  }) {
-    return AppColors(
-      bg: bg ?? this.bg,
-      surface: surface ?? this.surface,
-      border: border ?? this.border,
-      text: text ?? this.text,
-      muted: muted ?? this.muted,
-      muted2: muted2 ?? this.muted2,
-      accent: accent ?? this.accent,
-      onAccent: onAccent ?? this.onAccent,
-      highlight: highlight ?? this.highlight,
-      success: success ?? this.success,
-      error: error ?? this.error,
-      warning: warning ?? this.warning,
-      working: working ?? this.working,
-      codeBg: codeBg ?? this.codeBg,
-      userBubble: userBubble ?? this.userBubble,
-      modelBadgeBg: modelBadgeBg ?? this.modelBadgeBg,
-      modelBadgeBorder: modelBadgeBorder ?? this.modelBadgeBorder,
-      denyBorder: denyBorder ?? this.denyBorder,
-      inputFill: inputFill ?? this.inputFill,
-    );
-  }
+    Color? codeInk,
+  }) => AppColors(
+    bg: bg ?? this.bg,
+    surface: surface ?? this.surface,
+    surface2: surface2 ?? this.surface2,
+    hairline: hairline ?? this.hairline,
+    ink: ink ?? this.ink,
+    ink2: ink2 ?? this.ink2,
+    ink3: ink3 ?? this.ink3,
+    accent: accent ?? this.accent,
+    onAccent: onAccent ?? this.onAccent,
+    working: working ?? this.working,
+    workingSoft: workingSoft ?? this.workingSoft,
+    online: online ?? this.online,
+    error: error ?? this.error,
+    errorSoft: errorSoft ?? this.errorSoft,
+    userBubble: userBubble ?? this.userBubble,
+    codeInk: codeInk ?? this.codeInk,
+  );
 
   @override
   AppColors lerp(ThemeExtension<AppColors>? other, double t) {
@@ -197,23 +136,20 @@ class AppColors extends ThemeExtension<AppColors> {
     return AppColors(
       bg: Color.lerp(bg, other.bg, t)!,
       surface: Color.lerp(surface, other.surface, t)!,
-      border: Color.lerp(border, other.border, t)!,
-      text: Color.lerp(text, other.text, t)!,
-      muted: Color.lerp(muted, other.muted, t)!,
-      muted2: Color.lerp(muted2, other.muted2, t)!,
+      surface2: Color.lerp(surface2, other.surface2, t)!,
+      hairline: Color.lerp(hairline, other.hairline, t)!,
+      ink: Color.lerp(ink, other.ink, t)!,
+      ink2: Color.lerp(ink2, other.ink2, t)!,
+      ink3: Color.lerp(ink3, other.ink3, t)!,
       accent: Color.lerp(accent, other.accent, t)!,
       onAccent: Color.lerp(onAccent, other.onAccent, t)!,
-      highlight: Color.lerp(highlight, other.highlight, t)!,
-      success: Color.lerp(success, other.success, t)!,
-      error: Color.lerp(error, other.error, t)!,
-      warning: Color.lerp(warning, other.warning, t)!,
       working: Color.lerp(working, other.working, t)!,
-      codeBg: Color.lerp(codeBg, other.codeBg, t)!,
+      workingSoft: Color.lerp(workingSoft, other.workingSoft, t)!,
+      online: Color.lerp(online, other.online, t)!,
+      error: Color.lerp(error, other.error, t)!,
+      errorSoft: Color.lerp(errorSoft, other.errorSoft, t)!,
       userBubble: Color.lerp(userBubble, other.userBubble, t)!,
-      modelBadgeBg: Color.lerp(modelBadgeBg, other.modelBadgeBg, t)!,
-      modelBadgeBorder: Color.lerp(modelBadgeBorder, other.modelBadgeBorder, t)!,
-      denyBorder: Color.lerp(denyBorder, other.denyBorder, t)!,
-      inputFill: Color.lerp(inputFill, other.inputFill, t)!,
+      codeInk: Color.lerp(codeInk, other.codeInk, t)!,
     );
   }
 }
