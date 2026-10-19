@@ -1,4 +1,5 @@
 import 'package:app/ui/core/themes/themes.dart';
+import 'package:app/ui/core/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -45,8 +46,7 @@ class _OnSubmitScope extends InheritedWidget {
   const _OnSubmitScope({required this.onSubmit, required super.child});
 
   static void Function(String raw) of(BuildContext context) {
-    final scope =
-        context.dependOnInheritedWidgetOfExactType<_OnSubmitScope>();
+    final scope = context.dependOnInheritedWidgetOfExactType<_OnSubmitScope>();
     assert(
       scope != null,
       '_PasteQrSheetBody must be wrapped in a _OnSubmitScope (use showPasteQrSheet).',
@@ -132,8 +132,8 @@ class _PasteQrSheetBodyState extends State<_PasteQrSheetBody> {
             Text(
               'Paste pairing code',
               style: TextStyle(
-                fontFamily: kMonoFamily,
-                fontSize: 15,
+                fontFamily: kSansFamily,
+                fontSize: 22,
                 fontWeight: FontWeight.w600,
                 color: colors.text,
               ),
@@ -143,8 +143,8 @@ class _PasteQrSheetBodyState extends State<_PasteQrSheetBody> {
               "Can't scan the QR? Paste the text from your Mac terminal "
               "below. It starts with remotepi://pair?…",
               style: TextStyle(
-                fontFamily: kMonoFamily,
-                fontSize: 11,
+                fontFamily: kSansFamily,
+                fontSize: 13,
                 color: colors.muted,
                 height: 1.4,
               ),
@@ -166,8 +166,10 @@ class _PasteQrSheetBodyState extends State<_PasteQrSheetBody> {
               decoration: InputDecoration(
                 isDense: true,
                 hintText: 'remotepi://pair?t=…',
-                hintStyle:
-                    TextStyle(fontFamily: kMonoFamily, color: colors.muted),
+                hintStyle: TextStyle(
+                  fontFamily: kMonoFamily,
+                  color: colors.muted,
+                ),
                 filled: true,
                 fillColor: colors.surface,
                 contentPadding: const EdgeInsets.symmetric(
@@ -213,25 +215,9 @@ class _PasteQrSheetBodyState extends State<_PasteQrSheetBody> {
               ],
             ),
             const SizedBox(height: 12),
-            FilledButton(
+            PrimaryButton(
+              label: 'Pair',
               onPressed: _canSubmit ? _submit : null,
-              style: FilledButton.styleFrom(
-                backgroundColor: colors.accent,
-                foregroundColor: colors.onAccent,
-                disabledBackgroundColor: colors.border,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(6)),
-                ),
-              ),
-              child: const Text(
-                'Pair',
-                style: TextStyle(
-                  fontFamily: kMonoFamily,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
             ),
           ],
         ),

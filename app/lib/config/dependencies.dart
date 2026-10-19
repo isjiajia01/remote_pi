@@ -15,6 +15,8 @@ import 'package:app/data/transport/connection_manager.dart';
 import 'package:app/data/transport/peer_channel.dart';
 import 'package:app/data/images/image_picker_service.dart';
 import 'package:app/data/transport/relay_config.dart';
+import 'package:app/data/transport/ws_relay_reachability.dart';
+import 'package:app/domain/contracts/relay_reachability.dart';
 import 'package:app/data/transport/ws_transport.dart';
 import 'package:app/data/update/secure_dismissed_update_store.dart';
 import 'package:app/data/update/update_checker_impl.dart';
@@ -162,6 +164,7 @@ Future<void> setupDependencies() async {
       _injector.get<OwnerIdentityBridge>(),
     ),
   );
+  _injector.addOther<RelayReachability>(WsRelayReachability.new);
   _injector.addViewModel<OnboardingViewModel>(OnboardingViewModel.new);
   _injector.addViewModel<QuickActionsViewModel>(
     () => QuickActionsViewModel(_injector.get<IActionsRepository>()),

@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:app/config/dependencies.dart';
 import 'package:app/pairing/owner_identity_bridge.dart';
 import 'package:app/ui/core/themes/themes.dart';
+import 'package:app/ui/core/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -39,10 +40,10 @@ class _SyncRequiredPageState extends State<SyncRequiredPage> {
     final isIOS = Platform.isIOS;
     final requirements = isIOS ? _iosRequirements : _androidRequirements;
     final why = isIOS
-        ? 'Remote Pi keeps your Ed25519 owner key in iCloud Keychain so '
+        ? 'Perch keeps your Ed25519 owner key in iCloud Keychain so '
               'you can switch iPhones or pair your iPad without scanning '
               'a new QR.'
-        : 'Remote Pi keeps your Ed25519 owner key in Google Block Store '
+        : 'Perch keeps your Ed25519 owner key in Google Block Store '
               'so you can restore it on a new device through Google '
               'Backup without losing your paired Pis.';
 
@@ -62,20 +63,12 @@ class _SyncRequiredPageState extends State<SyncRequiredPage> {
                 size: 44,
               ),
               const SizedBox(height: 20),
-              Text(
-                'Sync required',
-                style: TextStyle(
-                  fontFamily: kMonoFamily,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: colors.text,
-                ),
-              ),
+              Text('Sync required', style: context.typo.title2),
               const SizedBox(height: 10),
               Text(
                 why,
                 style: TextStyle(
-                  fontFamily: kMonoFamily,
+                  fontFamily: kSansFamily,
                   fontSize: 12,
                   color: colors.muted2,
                   height: 1.4,
@@ -85,7 +78,7 @@ class _SyncRequiredPageState extends State<SyncRequiredPage> {
               Text(
                 'To enable, on this device:',
                 style: TextStyle(
-                  fontFamily: kMonoFamily,
+                  fontFamily: kSansFamily,
                   fontSize: 11,
                   color: colors.muted,
                   fontWeight: FontWeight.w600,
@@ -104,34 +97,9 @@ class _SyncRequiredPageState extends State<SyncRequiredPage> {
                 ),
               ),
               const SizedBox(height: 12),
-              FilledButton(
+              PrimaryButton(
+                label: _checking ? 'Checking…' : 'Check again',
                 onPressed: _checking ? null : _recheck,
-                style: FilledButton.styleFrom(
-                  backgroundColor: colors.accent,
-                  foregroundColor: colors.onAccent,
-                  disabledBackgroundColor: colors.border,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(6)),
-                  ),
-                ),
-                child: _checking
-                    ? SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          color: colors.onAccent,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Text(
-                        'Check again',
-                        style: TextStyle(
-                          fontFamily: kMonoFamily,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
               ),
               const SizedBox(height: 32),
             ],
@@ -157,7 +125,8 @@ const _androidRequirements = <_Requirement>[
   ),
   _Requirement(
     title: 'Turn on Google Backup',
-    path: 'Settings › System › Backup\n'
+    path:
+        'Settings › System › Backup\n'
         '(Samsung: Settings › Accounts and backup › Backup data)',
   ),
   _Requirement(
@@ -192,7 +161,7 @@ class _RequirementCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.surface,
         border: Border.all(color: colors.border),
-        borderRadius: const BorderRadius.all(Radius.circular(6)),
+        borderRadius: const BorderRadius.all(Radius.circular(14)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -208,7 +177,7 @@ class _RequirementCard extends StatelessWidget {
             child: Text(
               '$index',
               style: TextStyle(
-                fontFamily: kMonoFamily,
+                fontFamily: kSansFamily,
                 fontSize: 11,
                 color: colors.accent,
                 fontWeight: FontWeight.w600,
@@ -223,7 +192,7 @@ class _RequirementCard extends StatelessWidget {
                 Text(
                   requirement.title,
                   style: TextStyle(
-                    fontFamily: kMonoFamily,
+                    fontFamily: kSansFamily,
                     fontSize: 13,
                     color: colors.text,
                     fontWeight: FontWeight.w600,
@@ -233,7 +202,7 @@ class _RequirementCard extends StatelessWidget {
                 Text(
                   requirement.path,
                   style: TextStyle(
-                    fontFamily: kMonoFamily,
+                    fontFamily: kSansFamily,
                     fontSize: 11,
                     color: colors.muted2,
                     height: 1.4,
@@ -244,7 +213,7 @@ class _RequirementCard extends StatelessWidget {
                   Text(
                     requirement.note!,
                     style: TextStyle(
-                      fontFamily: kMonoFamily,
+                      fontFamily: kSansFamily,
                       fontSize: 10.5,
                       color: colors.muted,
                       height: 1.4,

@@ -3,6 +3,8 @@ import 'package:app/ui/core/themes/themes.dart';
 import 'package:app/ui/onboarding/states/onboarding_state.dart';
 import 'package:app/ui/onboarding/viewmodels/onboarding_viewmodel.dart';
 import 'package:app/ui/onboarding/widgets/widgets.dart';
+import 'package:app/ui/pairing/viewmodels/pairing_viewmodel.dart';
+import 'package:app/ui/pairing/states/pairing_state.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -30,8 +32,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
     if ((current - target).abs() < 0.01) return;
     _pageController.animateToPage(
       step.index,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeInOut,
+      duration: Duration(
+        milliseconds: MediaQuery.disableAnimationsOf(context) ? 0 : 250,
+      ),
+      curve: Curves.easeInOutCubic,
     );
   }
 
@@ -42,7 +46,14 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
     if (state is OnboardingComplete) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted) context.go('/home');
+        if (!context.mounted) return;
+        final paired = context.read<PairingViewModel>().state;
+        context.go(
+          '/home',
+          extra: paired is PairingPaired
+              ? {'pairedPeerEpk': paired.peer.remoteEpk}
+              : null,
+        );
       });
       return Scaffold(
         backgroundColor: context.colors.bg,
@@ -51,7 +62,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
     }
 
     final s = state as OnboardingInProgress;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncPage(s.step));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncPage(s.step);
+    });
 
     return Scaffold(
       backgroundColor: context.colors.bg,
@@ -67,25 +80,29 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   controller: _pageController,
                   physics: const NeverScrollableScrollPhysics(),
                   children: [
-                    WelcomeStep(onNext: vm.next),
+                    WelcomeStep(onNext: vm.next, onReturning: vm.skipToPair),
                     RelayStep(
                       state: s,
                       onChoice: vm.setRelayChoice,
                       onCustomUrl: vm.setCustomRelayUrl,
                       onBack: vm.back,
-                      onNext: vm.next,
+                      onNext: vm.checkAndContinue,
+                      onContinueAnyway: vm.continueAnyway,
                     ),
-                    PairStep(
-                      onPaired: () {
-                        // ignore: unawaited_futures
-                        vm.completePairing();
-                      },
-                      onBack: vm.back,
-                      onSkip: () {
-                        // ignore: unawaited_futures
-                        vm.skipPairing();
-                      },
-                    ),
+                    if (s.step == OnboardingStep.pair)
+                      PairStep(
+                        onPaired: () {
+                          // ignore: unawaited_futures
+                          vm.completePairing();
+                        },
+                        onBack: vm.back,
+                        onSkip: () {
+                          // ignore: unawaited_futures
+                          vm.skipPairing();
+                        },
+                      )
+                    else
+                      const SizedBox.shrink(),
                   ],
                 ),
               ),
@@ -110,15 +127,19 @@ class _StepIndicator extends StatelessWidget {
         children: List.generate(OnboardingStep.values.length, (i) {
           final active = i <= step.index;
           return Expanded(
-            child: Container(
-              margin: EdgeInsets.only(
-                left: i == 0 ? 0 : 4,
-                right: i == OnboardingStep.values.length - 1 ? 0 : 4,
+            child: AnimatedContainer(
+              duration: Duration(
+                milliseconds: MediaQuery.disableAnimationsOf(context) ? 0 : 250,
               ),
-              height: 3,
+              curve: Curves.easeInOutCubic,
+              margin: EdgeInsets.only(
+                left: i == 0 ? 0 : 3,
+                right: i == OnboardingStep.values.length - 1 ? 0 : 3,
+              ),
+              height: 4,
               decoration: BoxDecoration(
                 color: active ? colors.accent : colors.border,
-                borderRadius: const BorderRadius.all(Radius.circular(2)),
+                borderRadius: const BorderRadius.all(Radius.circular(999)),
               ),
             ),
           );

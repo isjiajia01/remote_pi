@@ -70,6 +70,7 @@ Future<PairingResult> performPairing({
   /// detect mismatch vs `qr.relayUrl` for legacy QRs. Passed in by
   /// the caller (PairingViewModel reads it from Preferences).
   required String currentRelayUrl,
+  void Function()? onConfirming,
 }) async {
   // Plan 14: legacy QRs may carry `r=<url>`. If that URL does not
   // match the app's configured relay, the device would attempt to
@@ -146,6 +147,7 @@ Future<PairingResult> performPairing({
       // yet to publish `harness` in pair_ok.
       harness: pairOk.harness,
     );
+    onConfirming?.call();
     await storage.savePeer(peer);
     return PairingResult(peer: peer, hostnameHint: pairOk.hostname);
   }

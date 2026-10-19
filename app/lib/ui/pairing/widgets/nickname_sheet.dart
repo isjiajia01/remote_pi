@@ -1,4 +1,5 @@
 import 'package:app/ui/core/themes/themes.dart';
+import 'package:app/ui/core/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 
 /// Post-pair nickname modal (plan/27 Wave A).
@@ -9,8 +10,8 @@ import 'package:flutter/material.dart';
 /// or `null` so the field hints with the generic placeholder "Pi".
 ///
 /// Returns the trimmed nickname string the user wants persisted:
-/// - "Save" with non-empty input → returns the input.
-/// - "Save" with empty input    → behaves as Skip (returns the default).
+/// - "Done" with non-empty input → returns the input.
+/// - "Done" with empty input    → behaves as Skip (returns the default).
 /// - "Skip"                     → returns [defaultName] ?? "Pi".
 /// - Drag-down dismiss          → returns null (caller treats as Skip too).
 ///
@@ -23,7 +24,7 @@ Future<String?> showNicknameSheet(
 }) {
   return showModalBottomSheet<String>(
     context: context,
-    backgroundColor: context.colors.bg,
+    backgroundColor: context.colors.surface,
     isScrollControlled: true,
     isDismissible: true,
     enableDrag: true,
@@ -40,7 +41,8 @@ class NicknameSheetForTest extends StatelessWidget {
   const NicknameSheetForTest({super.key, this.defaultName});
 
   @override
-  Widget build(BuildContext context) => _NicknameSheet(defaultName: defaultName);
+  Widget build(BuildContext context) =>
+      _NicknameSheet(defaultName: defaultName);
 }
 
 class _NicknameSheet extends StatefulWidget {
@@ -63,7 +65,7 @@ class _NicknameSheetState extends State<_NicknameSheet> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController();
+    _controller = TextEditingController(text: _placeholder);
   }
 
   @override
@@ -90,7 +92,7 @@ class _NicknameSheetState extends State<_NicknameSheet> {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -106,18 +108,11 @@ class _NicknameSheetState extends State<_NicknameSheet> {
                   ),
                 ),
               ),
-              Text(
-                'Name this PC',
-                style: TextStyle(
-                  color: colors.text,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              Text('Name this machine', style: context.typo.title2),
               const SizedBox(height: 6),
               Text(
-                'Pick a label so this Mac is easy to spot in your list. You can change it later from the home screen.',
-                style: TextStyle(color: colors.muted2, fontSize: 13),
+                'Pick a label so this machine is easy to spot. You can change it later in Settings.',
+                style: context.typo.footnote.copyWith(color: colors.ink2),
               ),
               const SizedBox(height: 20),
               TextField(
@@ -126,7 +121,7 @@ class _NicknameSheetState extends State<_NicknameSheet> {
                 autofocus: true,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _save(),
-                style: TextStyle(color: colors.text, fontFamily: kMonoFamily),
+                style: context.typo.body,
                 decoration: InputDecoration(
                   hintText: _placeholder,
                   hintStyle: TextStyle(color: colors.muted),
@@ -139,35 +134,15 @@ class _NicknameSheetState extends State<_NicknameSheet> {
                 ),
               ),
               const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      key: const Key('nickname-sheet-skip'),
-                      onPressed: _skip,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: Text(
-                        'Skip',
-                        style: TextStyle(color: colors.muted),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      key: const Key('nickname-sheet-save'),
-                      onPressed: _save,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: colors.accent,
-                        foregroundColor: colors.onAccent,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text('Save'),
-                    ),
-                  ),
-                ],
+              PrimaryButton(
+                key: const Key('nickname-sheet-save'),
+                label: 'Done',
+                onPressed: _save,
+              ),
+              SecondaryButton(
+                key: const Key('nickname-sheet-skip'),
+                label: 'Skip',
+                onPressed: _skip,
               ),
             ],
           ),

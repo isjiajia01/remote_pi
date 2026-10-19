@@ -14,10 +14,18 @@ class PairingScanning extends PairingState {
   const PairingScanning();
 }
 
+enum PairingStage { reachingRelay, waitingForMac, confirming }
+
 /// QR scanned; opening transport + sending pair_request.
 class PairingConnecting extends PairingState {
   final String sessionName;
-  const PairingConnecting({required this.sessionName});
+  final PairingStage stage;
+  final DateTime? startedAt;
+  const PairingConnecting({
+    required this.sessionName,
+    this.stage = PairingStage.reachingRelay,
+    this.startedAt,
+  });
 }
 
 /// Pi confirmed; channel adopted. UI navigates straight to chat
@@ -46,6 +54,11 @@ class PairingPaired extends PairingState {
 /// QR parse, transport, or pair_request failed.
 class PairingError extends PairingState {
   final String message;
+  final String code;
   final bool canRetry;
-  const PairingError({required this.message, this.canRetry = true});
+  const PairingError({
+    required this.message,
+    this.code = 'other',
+    this.canRetry = true,
+  });
 }

@@ -1,108 +1,201 @@
+import 'dart:async';
+
 import 'package:app/data/preferences/preferences.dart';
 import 'package:app/data/transport/relay_config.dart';
+import 'package:app/domain/contracts/relay_reachability.dart';
 import 'package:app/ui/core/viewmodel/viewmodel.dart';
 import 'package:app/ui/onboarding/states/onboarding_state.dart';
 
-/// Owns the 3-step onboarding flow. Pure state machine — the actual
-/// pairing happens via [PairingViewModel] surfaced inside `pair_step.dart`.
-/// Once pairing succeeds (callback into [completePairing]) the flag in
-/// [Preferences] flips and the router redirects to `/home`.
 class OnboardingViewModel extends ViewModel<OnboardingState> {
+  OnboardingViewModel(this._prefs, this._reachability)
+    : super(
+        OnboardingInProgress(
+          relayChoice: _prefs.relayUrl == null
+              ? RelayChoice.community
+              : RelayChoice.custom,
+          customRelayUrl: _prefs.relayUrl ?? '',
+        ),
+      );
+
   final Preferences _prefs;
+  final RelayReachability _reachability;
+  bool _disposed = false;
+  bool _saving = false;
 
-  OnboardingViewModel(this._prefs) : super(const OnboardingInProgress());
-
-  // ---------------------------------------------------------------------------
-  // Step navigation
-  // ---------------------------------------------------------------------------
-
-  void next() {
+  String get relayUrl {
     final s = state;
-    if (s is! OnboardingInProgress) return;
+    if (s is! OnboardingInProgress) return resolveRelayUrl(_prefs);
+    return s.relayChoice == RelayChoice.community
+        ? kDefaultRelayUrl
+        : s.customRelayUrl.trim();
+  }
+
+  Future<void> next() async {
+    final s = state;
+    if (s is! OnboardingInProgress || _busy(s)) return;
     switch (s.step) {
       case OnboardingStep.welcome:
         emit(s.copyWith(step: OnboardingStep.relay));
       case OnboardingStep.relay:
-        // Validate the relay choice before advancing. Empty custom URL
-        // is allowed — it falls back to the default community relay.
-        if (s.relayChoice == RelayChoice.custom &&
-            s.customRelayUrl.isNotEmpty) {
-          final reason = relayUrlValidationMessage(s.customRelayUrl);
-          if (reason != null) {
-            emit(s.copyWith(customRelayError: reason));
-            return;
-          }
-        }
-        // Persist relay (null = use default community).
-        final urlToSave = s.relayChoice == RelayChoice.custom &&
-                s.customRelayUrl.isNotEmpty
-            ? s.customRelayUrl
-            : null;
-        // ignore: unawaited_futures
-        _prefs.setRelayUrl(urlToSave);
-        emit(s.copyWith(step: OnboardingStep.pair, clearCustomError: true));
+        await checkAndContinue();
       case OnboardingStep.pair:
-        // Advancing from pair happens via `completePairing` (callback
-        // when pair_ok lands). Manual `next()` from pair is a no-op.
+        break;
     }
+  }
+
+  bool _busy(OnboardingInProgress s) =>
+      _saving ||
+      s.relayCheck == RelayCheckStatus.checking ||
+      s.relayCheck == RelayCheckStatus.reachable;
+
+  bool _validate(OnboardingInProgress s) {
+    if (s.relayChoice == RelayChoice.custom &&
+        !isValidRelayUrl(s.customRelayUrl.trim())) {
+      emit(
+        s.copyWith(
+          customRelayError: 'Enter a full URL starting with https://',
+          relayCheck: RelayCheckStatus.failed,
+        ),
+      );
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> checkAndContinue() async {
+    final s = state;
+    if (s is! OnboardingInProgress ||
+        s.step != OnboardingStep.relay ||
+        _busy(s) ||
+        !_validate(s)) {
+      return;
+    }
+    emit(
+      s.copyWith(relayCheck: RelayCheckStatus.checking, clearCustomError: true),
+    );
+    final result = await _reachability
+        .check(relayUrl)
+        .timeout(
+          const Duration(seconds: 8),
+          onTimeout: () =>
+              const RelayCheckResult.failed(RelayCheckFailure.timeout),
+        );
+    if (_disposed) return;
+    if (result.failure != null) {
+      emit(
+        s.copyWith(
+          relayCheck: RelayCheckStatus.failed,
+          customRelayError: result.failure == RelayCheckFailure.timeout
+              ? 'No answer in 8 s.'
+              : "Can't reach this host. On Tailscale? Check the VPN is on.",
+        ),
+      );
+      return;
+    }
+    emit(
+      s.copyWith(
+        relayCheck: RelayCheckStatus.reachable,
+        latencyMs: result.elapsed!.inMilliseconds,
+        clearCustomError: true,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    if (!_disposed) await _persistRelay(s);
+  }
+
+  Future<void> continueAnyway() async {
+    final s = state;
+    if (s is! OnboardingInProgress ||
+        s.step != OnboardingStep.relay ||
+        _busy(s) ||
+        !_validate(s)) {
+      return;
+    }
+    await _persistRelay(s);
+  }
+
+  Future<void> _persistRelay(OnboardingInProgress s) async {
+    _saving = true;
+    try {
+      await _prefs.setRelayUrl(
+        s.relayChoice == RelayChoice.custom ? s.customRelayUrl.trim() : null,
+      );
+      if (!_disposed) {
+        emit(
+          s.copyWith(
+            step: OnboardingStep.pair,
+            relayCheck: RelayCheckStatus.idle,
+            clearCustomError: true,
+          ),
+        );
+      }
+    } catch (_) {
+      if (!_disposed) {
+        emit(
+          s.copyWith(
+            relayCheck: RelayCheckStatus.failed,
+            customRelayError: "Couldn't save the relay. Try again.",
+          ),
+        );
+      }
+    } finally {
+      _saving = false;
+    }
+  }
+
+  void skipToPair() {
+    final s = state;
+    if (s is OnboardingInProgress) emit(s.copyWith(step: OnboardingStep.pair));
   }
 
   void back() {
     final s = state;
-    if (s is! OnboardingInProgress) return;
-    switch (s.step) {
-      case OnboardingStep.welcome:
-        return; // first step — no back
-      case OnboardingStep.relay:
-        emit(s.copyWith(step: OnboardingStep.welcome));
-      case OnboardingStep.pair:
-        emit(s.copyWith(step: OnboardingStep.relay));
+    if (s is! OnboardingInProgress || _busy(s)) return;
+    if (s.step != OnboardingStep.welcome) {
+      emit(
+        s.copyWith(
+          step: OnboardingStep.values[s.step.index - 1],
+          relayCheck: RelayCheckStatus.idle,
+          clearCustomError: true,
+        ),
+      );
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Step 2 — relay configuration
-  // ---------------------------------------------------------------------------
-
   void setRelayChoice(RelayChoice choice) {
     final s = state;
-    if (s is! OnboardingInProgress) return;
-    emit(s.copyWith(relayChoice: choice, clearCustomError: true));
+    if (s is! OnboardingInProgress || _busy(s)) return;
+    emit(
+      s.copyWith(
+        relayChoice: choice,
+        relayCheck: RelayCheckStatus.idle,
+        clearCustomError: true,
+      ),
+    );
   }
 
-  /// Updates the in-flight custom URL string. Validates on-the-fly:
-  /// inline error if non-empty + invalid. Empty input clears the error
-  /// (user is still typing).
   void setCustomRelayUrl(String url) {
     final s = state;
-    if (s is! OnboardingInProgress) return;
-    final error = url.isEmpty ? null : relayUrlValidationMessage(url);
-    emit(s.copyWith(
-      customRelayUrl: url,
-      customRelayError: error,
-      clearCustomError: error == null,
-    ));
+    if (s is! OnboardingInProgress || _busy(s)) return;
+    emit(
+      s.copyWith(
+        customRelayUrl: url,
+        relayCheck: RelayCheckStatus.idle,
+        clearCustomError: true,
+      ),
+    );
   }
 
-  // ---------------------------------------------------------------------------
-  // Step 3 — pairing success
-  // ---------------------------------------------------------------------------
-
-  /// Called by `pair_step.dart` when the underlying PairingViewModel
-  /// reports a successful pair_ok. Flips the onboarding flag in
-  /// preferences and transitions to [OnboardingComplete] — the
-  /// OnboardingPage observes that and navigates to `/home`.
   Future<void> completePairing() async {
     await _prefs.setOnboardingCompleted(true);
-    emit(const OnboardingComplete());
+    if (!_disposed) emit(const OnboardingComplete());
   }
 
-  /// User dismisses the QR step ("Scan later"). Onboarding is marked
-  /// done so we don't loop back here, but no peer is paired — Home
-  /// will show the "Awaiting pairing" empty state until the user pairs
-  /// from there.
-  Future<void> skipPairing() async {
-    await _prefs.setOnboardingCompleted(true);
-    emit(const OnboardingComplete());
+  Future<void> skipPairing() => completePairing();
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }

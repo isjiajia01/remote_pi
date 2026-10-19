@@ -173,12 +173,12 @@ class Preferences extends ChangeNotifier {
   Future<void> setRelayUrl(String? value) async {
     final cleaned = (value != null && value.isNotEmpty) ? value : null;
     if (cleaned == _relayUrl) return;
-    _relayUrl = cleaned;
     if (cleaned == null) {
       await _store.delete(key: _kRelayUrlKey);
     } else {
       await _store.write(key: _kRelayUrlKey, value: cleaned);
     }
+    _relayUrl = cleaned;
     notifyListeners();
   }
 

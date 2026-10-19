@@ -1,79 +1,90 @@
 import 'package:app/ui/core/themes/themes.dart';
+import 'package:app/ui/core/widgets/widgets.dart';
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-/// Onboarding step 1 — welcome. Static, no animations (per plan 14 D2 —
-/// "Welcome conservador (sem animações)").
 class WelcomeStep extends StatelessWidget {
+  const WelcomeStep({
+    super.key,
+    required this.onNext,
+    required this.onReturning,
+  });
   final VoidCallback onNext;
-  const WelcomeStep({super.key, required this.onNext});
+  final VoidCallback onReturning;
 
   @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Icon(LucideIcons.terminal, color: colors.accent, size: 64),
-          const SizedBox(height: 32),
-          Text(
-            'Remote Pi',
-            textAlign: TextAlign.center,
-            style: brandTextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w600,
-              color: colors.text,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Control your Pi agent from anywhere',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: kMonoFamily,
-              fontSize: 13,
-              color: colors.muted,
-            ),
-          ),
-          const SizedBox(height: 28),
-          Text(
-            'Pair this app with the Pi running on your computer '
-            '(Mac, Linux, or Windows) so you can chat with it even '
-            'when you\'re away from home.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: kMonoFamily,
-              fontSize: 12,
-              color: colors.muted,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 40),
-          FilledButton(
-            onPressed: onNext,
-            style: FilledButton.styleFrom(
-              backgroundColor: colors.accent,
-              foregroundColor: colors.onAccent,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(6)),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: Center(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 28,
+                    width: 28,
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          bottom: 4,
+                          child: Container(
+                            width: 28,
+                            height: 2,
+                            color: context.colors.ink,
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 6,
+                          left: 8,
+                          child: Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: context.colors.working,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    'perch',
+                    style: brandTextStyle(
+                      fontSize: 40,
+                      color: context.colors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 48),
+                  Text(
+                    'Watch over your Pi agents',
+                    textAlign: TextAlign.center,
+                    style: context.typo.title2,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'See every agent across your machines, read their work as it streams, and steer them from your phone.',
+                    textAlign: TextAlign.center,
+                    style: context.typo.body.copyWith(
+                      color: context.colors.ink2,
+                    ),
+                  ),
+                ],
               ),
             ),
-            child: const Text(
-              'Get started',
-              style: TextStyle(
-                fontFamily: kMonoFamily,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+        PrimaryButton(label: 'Get started', onPressed: onNext),
+        TextButton(
+          onPressed: onReturning,
+          child: Text(
+            "I've used Perch before",
+            style: context.typo.footnote.copyWith(color: context.colors.accent),
+          ),
+        ),
+      ],
+    ),
+  );
 }

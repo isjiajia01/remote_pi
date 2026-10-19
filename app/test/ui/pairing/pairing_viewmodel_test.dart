@@ -212,7 +212,7 @@ void main() {
       vm.dispose();
     });
 
-    test('invalid QR is ignored — stays PairingScanning', () async {
+    test('invalid QR produces a typed error', () async {
       final storage = _FakeStorage();
       final bridge = await _bootedBridge(storage);
       final vm = PairingViewModel(
@@ -223,7 +223,7 @@ void main() {
         bridge,
       );
       await vm.onQrScanned('https://example.com/not-a-qr');
-      expect(vm.state, isA<PairingScanning>());
+      expect((vm.state as PairingError).code, 'invalid_code');
       vm.dispose();
     });
 
@@ -259,6 +259,71 @@ void main() {
       vm.dispose();
     });
 
+    test(
+      'stages reflect relay, Mac response and durable confirmation',
+      () async {
+        final storage = _FakeStorage();
+        final bridge = await _bootedBridge(storage);
+        final conn = _SpyConn();
+        final vm = PairingViewModel(
+          storage,
+          _factoryReplyingWith({
+            'type': 'pair_ok',
+            'session_name': 'test session',
+          }),
+          conn,
+          _PrefsForTest(),
+          bridge,
+        );
+        final stages = <PairingStage>[];
+        vm.addListener(() {
+          final s = vm.state;
+          if (s is PairingConnecting) stages.add(s.stage);
+        });
+        await vm.onQrScanned(_qrUri);
+        expect(stages, [
+          PairingStage.reachingRelay,
+          PairingStage.waitingForMac,
+          PairingStage.confirming,
+        ]);
+        vm.dispose();
+        conn.dispose();
+      },
+    );
+
+    test(
+      'cancel during transport open closes late socket without adopting',
+      () async {
+        final storage = _FakeStorage();
+        final bridge = await _bootedBridge(storage);
+        final conn = _SpyConn();
+        final opening = Completer<PeerTransport>();
+        var called = false;
+        final vm = PairingViewModel(
+          storage,
+          (qr, key) {
+            called = true;
+            return opening.future;
+          },
+          conn,
+          _PrefsForTest(),
+          bridge,
+        );
+        final pairing = vm.onQrScanned(_qrUri);
+        while (!called) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        await vm.cancel();
+        opening.complete(_MemTransport(send: _Q(), recv: _Q()));
+        await pairing;
+        expect(vm.state, isA<PairingScanning>());
+        expect(conn.adoptedChannel, isNull);
+        expect(storage._saved, isEmpty);
+        vm.dispose();
+        conn.dispose();
+      },
+    );
+
     test('pair_error → PairingError(canRetry: true)', () async {
       final storage = _FakeStorage();
       final bridge = await _bootedBridge(storage);
@@ -281,7 +346,8 @@ void main() {
       expect(vm.state, isA<PairingError>());
       final err = vm.state as PairingError;
       expect(err.canRetry, isTrue);
-      expect(err.message, contains('QR expired'));
+      expect(err.code, 'token_expired');
+      expect(err.message, 'Token expired');
       expect(storage._saved, isEmpty);
 
       vm.dispose();
@@ -303,6 +369,7 @@ void main() {
         await vm.onQrScanned(_qrUri);
         expect(vm.state, isA<PairingError>());
         expect((vm.state as PairingError).canRetry, isTrue);
+        expect((vm.state as PairingError).code, 'relay_unreachable');
 
         vm.retry();
         expect(vm.state, isA<PairingScanning>());

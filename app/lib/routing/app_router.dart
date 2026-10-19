@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/config/dependencies.dart';
 import 'package:app/data/mesh/mesh_sync_service.dart';
 import 'package:app/data/preferences/preferences.dart';
@@ -22,6 +24,7 @@ import 'package:app/ui/settings/viewmodels/settings_viewmodel.dart';
 import 'package:app/ui/sync_required/sync_required_page.dart';
 import 'package:app/ui/update/viewmodels/update_banner_viewmodel.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -202,7 +205,10 @@ GoRouter buildRouter(
       // even if peers are empty. Home has a first-pair empty state
       // that covers that case more cleanly than re-running the welcome
       // wizard a second time.
-      final shouldOnboard = boot.identityWasGenerated && !boot.hasPeer;
+      const replayOnboarding =
+          kDebugMode && bool.fromEnvironment('PERCH_REPLAY_ONBOARDING');
+      final shouldOnboard =
+          replayOnboarding || (boot.identityWasGenerated && !boot.hasPeer);
       final target = shouldOnboard ? '/onboarding' : '/home';
       if (state.uri.path == '/sync-required' || state.uri.path == '/boot') {
         return target;
@@ -410,23 +416,63 @@ class _DetailPane extends StatelessWidget {
   }
 }
 
-class _BootSplash extends StatelessWidget {
+class _BootSplash extends StatefulWidget {
   const _BootSplash();
-
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: context.colors.bg,
-      body: Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(
-            color: context.colors.accent,
-            strokeWidth: 2,
-          ),
-        ),
-      ),
+  State<_BootSplash> createState() => _BootSplashState();
+}
+
+class _BootSplashState extends State<_BootSplash> {
+  Timer? _timer;
+  bool _slow = false;
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(
+      const Duration(seconds: 8),
+      () => setState(() => _slow = true),
     );
   }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: context.colors.bg,
+    body: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'perch',
+            style: brandTextStyle(fontSize: 34, color: context.colors.ink),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: 64,
+            height: 2,
+            child: LinearProgressIndicator(
+              color: context.colors.accent,
+              backgroundColor: context.colors.hairline,
+              minHeight: 2,
+            ),
+          ),
+          if (_slow)
+            Padding(
+              padding: const EdgeInsets.only(top: 24),
+              child: Text(
+                'Still starting… checking iCloud Keychain',
+                style: context.typo.footnote.copyWith(
+                  color: context.colors.ink2,
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
 }

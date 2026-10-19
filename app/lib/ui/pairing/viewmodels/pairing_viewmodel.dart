@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:app/data/preferences/preferences.dart';
@@ -30,6 +31,10 @@ class PairingViewModel extends ViewModel<PairingState> {
   final OwnerIdentityBridge _ownerBridge;
   pair_flow.PeerTransport? _transport;
   PlainPeerChannel? _liveChannel;
+  int _attempt = 0;
+  bool _disposed = false;
+
+  String get relayHost => Uri.parse(resolveRelayUrl(_prefs)).host;
 
   PairingViewModel(
     this._storage,
@@ -48,9 +53,35 @@ class PairingViewModel extends ViewModel<PairingState> {
     if (state is PairingConnecting) return;
 
     final qr = QrPairPayload.tryParse(rawUri);
-    if (qr == null) return; // not a remotepi:// QR — ignore silently
+    if (qr == null) {
+      emit(
+        const PairingError(
+          code: 'invalid_code',
+          message: 'Invalid QR or pasted pairing code',
+        ),
+      );
+      return;
+    }
 
-    emit(PairingConnecting(sessionName: qr.sessionName));
+    final attempt = ++_attempt;
+    final startedAt = DateTime.now();
+    var transportOpened = false;
+    void checkCurrent() {
+      if (_disposed || attempt != _attempt) throw const _PairingCancelled();
+    }
+
+    void stage(PairingStage stage) {
+      checkCurrent();
+      emit(
+        PairingConnecting(
+          sessionName: qr.sessionName,
+          stage: stage,
+          startedAt: startedAt,
+        ),
+      );
+    }
+
+    stage(PairingStage.reachingRelay);
 
     try {
       // Close any active session before opening a new WS to the relay.
@@ -64,8 +95,15 @@ class PairingViewModel extends ViewModel<PairingState> {
       // requireKeyPair() never throws here.
       final ownerKey = await _ownerBridge.requireKeyPair();
 
+      checkCurrent();
       final transport = await _transportFactory(qr, ownerKey);
+      if (_disposed || attempt != _attempt) {
+        await transport.close();
+        return;
+      }
       _transport = transport;
+      transportOpened = true;
+      stage(PairingStage.waitingForMac);
 
       final result = await pair_flow
           .performPairing(
@@ -74,6 +112,7 @@ class PairingViewModel extends ViewModel<PairingState> {
             storage: _storage,
             deviceName: _deviceName(),
             currentRelayUrl: resolveRelayUrl(_prefs),
+            onConfirming: () => stage(PairingStage.confirming),
           )
           .timeout(
             const Duration(seconds: 30),
@@ -84,6 +123,7 @@ class PairingViewModel extends ViewModel<PairingState> {
             ),
           );
 
+      checkCurrent();
       final channel = PlainPeerChannel(transport: transport);
       _liveChannel = channel;
       _transport = null; // channel now owns the transport
@@ -92,12 +132,25 @@ class PairingViewModel extends ViewModel<PairingState> {
       _liveChannel = null;
 
       emit(PairingPaired(peer: result.peer, hostnameHint: result.hostnameHint));
+    } on _PairingCancelled {
+      return;
     } on pair_flow.PairingError catch (e) {
+      if (_disposed || attempt != _attempt) return;
+      ++_attempt;
       await _closeTransient();
-      emit(PairingError(message: _friendlyError(e), canRetry: true));
+      if (_disposed) return;
+      emit(PairingError(code: e.code, message: e.message));
     } catch (e) {
+      if (_disposed || attempt != _attempt) return;
+      ++_attempt;
       await _closeTransient();
-      emit(PairingError(message: e.toString(), canRetry: true));
+      if (_disposed) return;
+      emit(
+        PairingError(
+          code: transportOpened ? 'other' : 'relay_unreachable',
+          message: e.toString(),
+        ),
+      );
     }
   }
 
@@ -120,6 +173,7 @@ class PairingViewModel extends ViewModel<PairingState> {
     if (trimmed == null || trimmed.isEmpty) return;
     final updated = s.peer.copyWith(nickname: trimmed);
     await _storage.savePeer(updated);
+    if (_disposed) return;
     emit(PairingPaired(peer: updated, hostnameHint: s.hostnameHint));
   }
 
@@ -132,13 +186,19 @@ class PairingViewModel extends ViewModel<PairingState> {
     _transport = null;
   }
 
-  static String _friendlyError(pair_flow.PairingError e) => switch (e.code) {
-    'token_expired' => 'QR expired — generate a new one on your Mac',
-    'token_consumed' => 'QR already used — generate a new one',
-    'token_unknown' => 'QR not recognized by Mac — re-run /remote-pi pair',
-    'pair_timeout' => 'Timed out — make sure /remote-pi is running on your Mac',
-    _ => e.message.isEmpty ? e.code : e.message,
-  };
+  Future<void> cancel() async {
+    ++_attempt;
+    await _closeTransient();
+    if (!_disposed) emit(const PairingScanning());
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    ++_attempt;
+    unawaited(_closeTransient());
+    super.dispose();
+  }
 
   static String _deviceName() {
     try {
@@ -149,4 +209,8 @@ class PairingViewModel extends ViewModel<PairingState> {
       return 'Mobile';
     }
   }
+}
+
+class _PairingCancelled implements Exception {
+  const _PairingCancelled();
 }

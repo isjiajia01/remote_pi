@@ -33,60 +33,57 @@ Future<void> _openSheet(
 
 void main() {
   group('showNicknameSheet (plan/27 Wave A)', () {
-    testWidgets(
-      'Save with non-empty input returns the trimmed input',
-      (tester) async {
-        String? result;
-        await _openSheet(
-          tester,
-          defaultName: 'Mac do Jacob',
-          onResult: (v) => result = v,
-        );
+    testWidgets('Save with non-empty input returns the trimmed input', (
+      tester,
+    ) async {
+      String? result;
+      await _openSheet(
+        tester,
+        defaultName: 'Mac do Jacob',
+        onResult: (v) => result = v,
+      );
 
-        await tester.enterText(
-          find.byKey(const Key('nickname-sheet-field')),
-          '  Macbook  ',
-        );
-        await tester.tap(find.byKey(const Key('nickname-sheet-save')));
-        await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('nickname-sheet-field')),
+        '  Macbook  ',
+      );
+      await tester.tap(find.byKey(const Key('nickname-sheet-save')));
+      await tester.pumpAndSettle();
 
-        expect(result, 'Macbook');
-      },
-    );
+      expect(result, 'Macbook');
+    });
 
-    testWidgets(
-      'Save with empty input falls back to the hostname hint',
-      (tester) async {
-        String? result;
-        await _openSheet(
-          tester,
-          defaultName: 'Mac do Jacob',
-          onResult: (v) => result = v,
-        );
+    testWidgets('Save with empty input falls back to the hostname hint', (
+      tester,
+    ) async {
+      String? result;
+      await _openSheet(
+        tester,
+        defaultName: 'Mac do Jacob',
+        onResult: (v) => result = v,
+      );
 
-        await tester.tap(find.byKey(const Key('nickname-sheet-save')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('nickname-sheet-save')));
+      await tester.pumpAndSettle();
 
-        expect(result, 'Mac do Jacob');
-      },
-    );
+      expect(result, 'Mac do Jacob');
+    });
 
-    testWidgets(
-      'Skip returns the hostname hint when one was passed',
-      (tester) async {
-        String? result;
-        await _openSheet(
-          tester,
-          defaultName: 'Mac do Jacob',
-          onResult: (v) => result = v,
-        );
+    testWidgets('Skip returns the hostname hint when one was passed', (
+      tester,
+    ) async {
+      String? result;
+      await _openSheet(
+        tester,
+        defaultName: 'Mac do Jacob',
+        onResult: (v) => result = v,
+      );
 
-        await tester.tap(find.byKey(const Key('nickname-sheet-skip')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('nickname-sheet-skip')));
+      await tester.pumpAndSettle();
 
-        expect(result, 'Mac do Jacob');
-      },
-    );
+      expect(result, 'Mac do Jacob');
+    });
 
     testWidgets(
       'Skip returns "Pi" when no hostname hint is available (legacy Pi)',
@@ -105,19 +102,15 @@ void main() {
       },
     );
 
-    testWidgets(
-      'placeholder text reflects the hostname hint',
-      (tester) async {
-        await _openSheet(
-          tester,
-          defaultName: 'Mac do Jacob',
-          onResult: (_) {},
-        );
+    testWidgets('field is prefilled with hostname hint', (tester) async {
+      await _openSheet(tester, defaultName: 'Mac do Jacob', onResult: (_) {});
 
-        // hintText is rendered as a Text inside the TextField — assert
-        // by finding it on screen.
-        expect(find.text('Mac do Jacob'), findsWidgets);
-      },
-    );
+      final field = tester.widget<TextField>(
+        find.byKey(const Key('nickname-sheet-field')),
+      );
+      expect(field.controller!.text, 'Mac do Jacob');
+      expect(find.text('Name this machine'), findsOneWidget);
+      expect(find.text('Done'), findsOneWidget);
+    });
   });
 }

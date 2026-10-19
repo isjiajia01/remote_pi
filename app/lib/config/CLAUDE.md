@@ -117,3 +117,9 @@ Detalhes do consumo em `ui/CLAUDE.md`.
 - **Binding** — contrato que associa um tipo concreto ao seu provedor dentro
   do injector.
 - **Bootstrap** — sequência de inicialização do app antes do `runApp`.
+
+## Debug capture
+
+`--dart-define=PERCH_REPLAY_ONBOARDING=true` reopens onboarding after normal
+boot in debug builds only. It preserves identity, peers and preferences;
+release builds ignore it. Used for onboarding regression capture without uninstalling.
