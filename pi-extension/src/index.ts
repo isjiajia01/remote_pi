@@ -71,6 +71,7 @@ import type {
 import { RelayClient, RoomAlreadyOpenError } from "./transport/relay_client.js";
 import { handlePerchMessage, perchError, type PerchServerMessage } from "./protocol/perch.js";
 import { PlainPeerChannel } from "./transport/peer_channel.js";
+import { loadApprovalConfig, ToolApprovals } from "./approvals.js";
 import {
   createExtensionUiBridge,
   type ExtensionUiBridge,
@@ -172,6 +173,14 @@ let _relayUrl: string | null = null;  // URL used by current _relay connection
  *     `/remote-pi status` output both derive from this.
  */
 const _activePeers = new Map<string, PlainPeerChannel>();
+const _toolApprovals = new ToolApprovals({
+  owners: () => [..._activePeers.keys()],
+  authorized: async (owner) => {
+    const channel = _activePeers.get(owner);
+    return !!channel && !!await _findKnownPeer(owner) && _activePeers.get(owner) === channel;
+  },
+  send: (owner, request) => { _activePeers.get(owner)?.send(request); },
+});
 let _peerShort = "";  // shortid of the most recently attached peer (UX hint only)
 
 const REMOTE_PI_RECEIVED_IMAGE_TYPE = "remote-pi:received-image";
@@ -1235,6 +1244,7 @@ function _attachPeerChannel(appPeerId: string, channel: PlainPeerChannel): void 
 /** Detaches a single owner's channel + removes it from the map. Used by
  *  `_onPeerDisconnect`, `_cmdRevoke`, and the SelfRevoke callback. */
 function _detachPeerChannel(appPeerId: string): void {
+  _toolApprovals.cancelOwner(appPeerId);
   const ch = _activePeers.get(appPeerId);
   if (!ch) return;
   try { ch.detach(); } catch { /* best-effort */ }
@@ -1391,6 +1401,7 @@ async function _findKnownPeer(appPeerIdStd: string): Promise<PeerRecord | null> 
  * by omitting the reason; app falls back to ping miss naturally.
  */
 function _goIdle(byeReason?: import("./protocol/types.js").ByeReason): void {
+  _toolApprovals.cancelAll();
   _rootLifecycleGeneration += 1;
   _relayLifecycleGeneration += 1;
 
@@ -1466,6 +1477,7 @@ function _onRelayClose(closedRelay: RelayClient): void {
   if (_relay !== closedRelay) return; // delayed close from a replaced Relay
   if (_state === "idle") return;  // already torn down (e.g. /remote-pi stop)
 
+  _toolApprovals.cancelAll();
   _relayLifecycleGeneration += 1;
   _stopAutoListener?.();
   _stopAutoListener = null;
@@ -2109,11 +2121,12 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
     messages: _filterInternalMessagesFromContext(event.messages),
   }));
 
-  // Tool calls execute without prompting the remote user. The Pi SDK has no
-  // native `requiresApproval` per tool, and a hardcoded gate (Bash/Edit/Write)
-  // misfired on every custom tool from third-party packages. Approval will
-  // come back when the Pi ecosystem ships a permissions convention. tool_result
-  // is still forwarded so the app shows tool activity transparently.
+  // Local, explicit opt-in only. The SDK awaits this hook before execute,
+  // including agent-core nested calls. Malformed policies fail closed.
+  pi.on("tool_call", async (event, ctx) => {
+    try { return await _toolApprovals.gate(event, loadApprovalConfig(ctx.cwd), ctx.signal); }
+    catch { return { block: true, reason: "Invalid or unreadable Perch approval policy" }; }
+  });
 
   // Mirror input typed in the Pi terminal (or sent via RPC) to every
   // connected owner. 'extension' source is our own sendUserMessage call
@@ -2248,6 +2261,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   });
 
   pi.on("agent_end", () => {
+    _toolApprovals.cancelAll();
     // Buffer is fed by `message_end`; here we only finalize the outbound
     // turn signal to every connected owner. No buffer mutation.
     if (_anyPeerActive() && _currentTurnId) {
@@ -2338,6 +2352,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   // New session. Fires on startup/new/fork/reload/resume; the ctx is always
   // bound to the current session.
   pi.on("session_start", (_event, ctx) => {
+    _toolApprovals.resetSession();
     _lastEventCtx = ctx;
     // session_shutdown disposes per-session pi-ask subscriptions. A host that
     // reuses this module instance does NOT re-run the factory, so rebind the
@@ -2433,6 +2448,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   // best-effort: every step is guarded so a partially-initialised instance
   // (e.g. shutdown lands mid-`_cmdRoot`) tears down without throwing.
   pi.on("session_shutdown", async () => {
+    _toolApprovals.resetSession();
     // Revoke async authority synchronously, before any teardown await. `_disposed`
     // blocks the outgoing continuation immediately; the root and candidate
     // generations keep queued work stale even if a same-module session_start
@@ -4380,6 +4396,11 @@ export function _routeClientMessageFrom(
   msg: ClientMessage,
   ctx: Pick<ExtensionContext, "abort">,
 ): void {
+  if (msg.type === "perch_tool_approval_decision") {
+    const owner = [..._activePeers].find(([, channel]) => channel === sender)?.[0];
+    if (owner) void _toolApprovals.decide(owner, msg);
+    return;
+  }
   if (msg.type === "perch_capabilities_get" || msg.type === "perch_request") {
     const owner = [..._activePeers].find(([, channel]) => channel === sender)?.[0];
     const node = _meshNode;
@@ -4405,6 +4426,7 @@ export function _routeClientMessageFrom(
     return;
   }
   if (msg.type === "cancel") {
+    _toolApprovals.cancelAll();
     try {
       const aborted = _abortCurrentTurn(ctx);
       if (!aborted) {
@@ -4507,9 +4529,8 @@ export function _routeClientMessageFrom(
       break;
     }
     case "approve_tool":
-      // Approval gate was removed (plano 10.2 revisado). Type kept in
-      // ClientMessage for forward-compat with a future permissions model;
-      // ignore silently if the app still sends it from an older build.
+      // Legacy decisions lack the session/digest/challenge binding and can
+      // never release the opt-in Perch approval gate.
       break;
     case "ping":
       sender.send({ type: "pong", in_reply_to: msg.id });
@@ -4714,6 +4735,7 @@ function _handleSessionSync(
  * a new session is global state, so every owner must see the reset.
  */
 function _resetSessionForNew(inReplyTo: string): void {
+  _toolApprovals.resetSession();
   _messageBuffer = [];
   _pendingSteers = [];
   _lastConsumedSteerText = null;

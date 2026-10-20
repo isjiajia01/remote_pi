@@ -1,6 +1,7 @@
 import type { ClientMessage, ServerMessage } from "./types.js";
 
 const SERVER_TYPES = new Set<ServerMessage["type"]>([
+  "perch_tool_approval_request",
   "perch_capabilities_result",
   "perch_result",
   "perch_error",

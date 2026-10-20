@@ -616,6 +616,57 @@ describe("state machine + pair_request flow", () => {
     await vi.waitFor(() => expect(_getState()).toBe("paired"), { timeout: 2000 });
   });
 
+  test("Perch approval hook routes bound decisions only; legacy/revoked/unknown senders cannot allow", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "perch-hook-"));
+    mkdirSync(join(cwd, ".pi", "remote-pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "remote-pi", "perch-approvals.json"),
+      JSON.stringify({ enabled: true, tools: ["danger"], timeout_ms: 1000 }));
+    // Start only the mocked relay: never join the machine's real local broker.
+    await _startRelayForTest(makeMockCtx(cwd));
+    let hook!: (event: object, ctx: object) => Promise<unknown>;
+    const { pi } = makeMockPi();
+    pi.on = ((name: string, handler: typeof hook) => { if (name === "tool_call") hook = handler; }) as ExtensionAPI["on"];
+    extension(pi);
+    _knownPeers.push({ name: "Owner", remote_epk: OWNER_STANDARD_FIXTURE, paired_at: new Date().toISOString() });
+    const relay = relayRef.current!;
+    const send = (peer: string, msg: object) => relay.emit("message", makeInnerLine(peer, msg));
+    const requests = () => relay.send.mock.calls.map((c) => decodeSentCt(c[0] as string).inner)
+      .filter((msg) => msg.type === "perch_tool_approval_request");
+    try {
+      send(OWNER_STANDARD_FIXTURE, { type: "ping", id: "attach" });
+      await vi.waitFor(() => expect(_hasActivePeerForTest(OWNER_STANDARD_FIXTURE)).toBe(true));
+      let executions = 0;
+      const call = (id: string) => hook({ type: "tool_call", toolName: "danger", toolCallId: id, input: { value: 1 } },
+        { cwd }).then((result) => { if (!(result as { block?: boolean })?.block) executions++; return result; });
+      const first = call("first");
+      await vi.waitFor(() => expect(requests()).toHaveLength(1));
+      const request = requests()[0]!;
+      const decision = { ...request, type: "perch_tool_approval_decision", decision: "allow" };
+      send(OWNER_STANDARD_FIXTURE, { type: "approve_tool", id: request.id, tool_call_id: "first", decision: "allow" });
+      send(OTHER_OWNER_STANDARD_FIXTURE, decision);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(executions).toBe(0);
+      send(OWNER_STANDARD_FIXTURE, decision);
+      expect(await first).toBeUndefined();
+      expect(executions).toBe(1);
+      const second = call("second");
+      await vi.waitFor(() => expect(requests()).toHaveLength(2));
+      send(OWNER_STANDARD_FIXTURE, decision); // old challenge cannot release second
+      expect(executions).toBe(1);
+      _knownPeers.length = 0;
+      send(OWNER_STANDARD_FIXTURE, { ...requests()[1], type: "perch_tool_approval_decision", decision: "allow" });
+      expect(await second).toHaveProperty("block", true);
+      expect(executions).toBe(1);
+      // Missing config preserves legacy execution; malformed existing config blocks.
+      expect(await hook({ type: "tool_call", toolName: "danger", input: {} }, { cwd: join(cwd, "absent") })).toBeUndefined();
+      writeFileSync(join(cwd, ".pi", "remote-pi", "perch-approvals.json"), "{");
+      expect(await hook({ type: "tool_call", toolName: "danger", input: {} }, { cwd })).toHaveProperty("block", true);
+    } finally {
+      await captureHandler("remote-pi stop")("", makeMockCtx(cwd));
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("Perch negotiation reuses paired Owner check and revocation is rechecked", async () => {
     // The machine-wide broker can belong to an older live install. This test
     // needs the broker under test, rather than that unrelated process.

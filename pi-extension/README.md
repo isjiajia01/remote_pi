@@ -575,10 +575,9 @@ with a `[<cwd>]` prefix, so a single log stream shows every agent.
 
 ### Caveats (plan/26 trade-offs)
 
-- **Tool approval is not gated.** Daemons inherit the same Pi config
-  the interactive run uses — Bash, Edit, Write etc. all execute without
-  prompting. Configure Pi's tool permissions to taste before promoting
-  a folder to daemon.
+- **Tool approval is opt-in and OFF by default.** The local Perch approval
+  policy below gates only explicitly named tools, in interactive and daemon
+  sessions. Existing clients cannot approve the new challenges yet.
 - **Pairing still happens interactively.** Daemons don't show a QR
   themselves; the keypair + paired devices come from the prior `pi`
   session in the same folder.
@@ -595,6 +594,7 @@ with a `[<cwd>]` prefix, so a single log stream shows every agent.
 | Path | Scope | What's in it |
 |---|---|---|
 | `<cwd>/.pi/remote-pi/config.json` | Per-directory | `agent_name`, `session_name`, `auto_start_relay` |
+| `<cwd>/.pi/remote-pi/perch-approvals.json` | Per-directory | Opt-in `enabled`, exact `tools` names, optional `timeout_ms` |
 | `~/.pi/remote/config.json` | Per-user | `relay` URL |
 | `~/.pi/remote/peers.json` | Per-machine | Paired mobile devices |
 | `~/.pi/remote/sessions/<name>/` | Per-session | Broker socket + `audit.jsonl` |
@@ -607,6 +607,42 @@ REMOTE_PI_RELAY=https://staging.example.tld pi
 ```
 
 ---
+
+## Perch tool approvals (extension only)
+
+To opt in locally, create `<cwd>/.pi/remote-pi/perch-approvals.json`:
+
+```json
+{ "enabled": true, "tools": ["bash", "edit", "write"], "timeout_ms": 60000 }
+```
+
+The policy is read before each SDK tool call. Missing files default OFF;
+invalid or unreadable existing files block calls. Tool names are exact and case
+sensitive; unlisted tools keep their existing behavior. Timeout defaults to
+60 seconds and accepts 1–300000 milliseconds. Remote messages cannot update
+this policy. Treat the file as operator-controlled local configuration.
+
+A selected tool waits for a versioned `perch_tool_approval_decision` from a
+currently connected, authenticated, still-paired Owner that received the
+challenge. The server binds the decision to that Owner, a fresh session token,
+tool-call ID, challenge ID, and SHA-256 digest of canonical JSON arguments.
+Requests include the full arguments and deadline; the first valid response
+consumes the challenge. Denial, invalid binding, timeout, cancellation,
+revocation, disconnect, or session replacement prevent execution. No available
+Owner also denies. Legacy `approve_tool` messages never release a wait.
+
+The extension rechecks authorization and the argument digest before release,
+then recursively freezes the validated arguments used by the SDK. Later
+handlers that attempt to mutate them throw and the SDK blocks execution;
+tools that mutate their own input may likewise fail. Nested calls through the
+SDK agent loop receive their own challenges. Direct tool invocations outside
+SDK hooks and arbitrary code in installed extensions are outside this gate.
+The tested SDK is 0.79.10; preserve these checks when upgrading it.
+
+This phase adds no mobile approval UI. Enable the policy only with a client
+that implements the new contract; older clients leave selected calls waiting
+until they are denied. Wire shapes and fixtures are documented in
+[the Perch contract](../.orchestration/contracts/perch-v1/README.md).
 
 ## Troubleshooting
 

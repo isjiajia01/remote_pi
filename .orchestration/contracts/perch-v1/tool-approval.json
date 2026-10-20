@@ -1,0 +1,28 @@
+{
+  "request": {
+    "type": "perch_tool_approval_request",
+    "id": "approval-1",
+    "version": 1,
+    "owner": "paired-owner",
+    "session_id": "session-1",
+    "tool_call_id": "call-1",
+    "tool": "danger",
+    "args": {
+      "nested": {
+        "value": 1
+      }
+    },
+    "args_digest": "65d769e734cb80f3fcbe06bfc510aff410581463504780a171665ca55ec78a2c",
+    "expires_at": 1792368060000
+  },
+  "decision": {
+    "type": "perch_tool_approval_decision",
+    "id": "approval-1",
+    "version": 1,
+    "owner": "paired-owner",
+    "session_id": "session-1",
+    "tool_call_id": "call-1",
+    "args_digest": "65d769e734cb80f3fcbe06bfc510aff410581463504780a171665ca55ec78a2c",
+    "decision": "allow"
+  }
+}

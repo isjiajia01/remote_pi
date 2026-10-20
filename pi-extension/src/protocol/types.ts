@@ -1,4 +1,5 @@
 import type { PerchClientMessage, PerchServerMessage } from "./perch.js";
+import type { ApprovalDecision, ApprovalRequest } from "./approvals.js";
 
 export type PairErrorCode =
   | "token_expired"
@@ -175,6 +176,7 @@ export type ExtensionUiResponseWire =
     };
 
 export type ClientMessage =
+  | ApprovalDecision
   | PerchClientMessage
   | { type: "pair_request"; id: string; token: string; device_name: string }
   // Plan/30: optional `images` carry inline base64 attachments (one today).
@@ -264,6 +266,7 @@ export type SessionHistoryEvent =
   | { ts: number; type: "compaction"; summary: string; tokens_before: number };
 
 export type ServerMessage =
+  | ApprovalRequest
   | PerchServerMessage
   | {
       type: "pair_ok";
