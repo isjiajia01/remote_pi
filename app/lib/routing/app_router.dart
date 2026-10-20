@@ -1,3 +1,5 @@
+import 'package:app/ui/control/control_page.dart';
+import 'package:app/ui/control/viewmodels/control_viewmodel.dart';
 import 'package:app/ui/chat/quick_actions/viewmodels/quick_actions_viewmodel.dart';
 import 'dart:async';
 
@@ -340,6 +342,12 @@ GoRouter buildRouter(
             ),
           ),
         ],
+      ),
+
+      GoRoute(
+        path: '/control',
+        builder: (ctx, st) =>
+            ViewmodelProvider<ControlViewModel>(child: const ControlPage()),
       ),
 
       // QR pairing flow

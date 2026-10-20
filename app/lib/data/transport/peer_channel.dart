@@ -24,7 +24,7 @@ class PeerChannelError implements Exception {
   String toString() => 'PeerChannelError: $message';
 }
 
-class PlainPeerChannel implements IChannel, IControlLink {
+class PlainPeerChannel implements IChannel, IControlLink, IRoomChannel {
   final PeerTransport _transport;
 
   final _controller = StreamController<ServerMessage>.broadcast();
@@ -73,8 +73,31 @@ class PlainPeerChannel implements IChannel, IControlLink {
 
   @override
   Future<void> send(ClientMessage msg) async {
-    final bytes = Uint8List.fromList(utf8.encode(encodeClient(msg).trimRight()));
+    final bytes = Uint8List.fromList(
+      utf8.encode(encodeClient(msg).trimRight()),
+    );
     await _transport.send(bytes);
+  }
+
+  @override
+  Stream<ServerMessage> messagesForRoom(String room) {
+    final transport = _transport;
+    if (transport is! IRoomTransport) return const Stream.empty();
+    return (transport as IRoomTransport).roomMessages
+        .where((frame) => frame.room == room)
+        .map((frame) => decodeServer(utf8.decode(frame.bytes)));
+  }
+
+  @override
+  Future<void> sendToRoom(String room, ClientMessage message) async {
+    final transport = _transport;
+    if (transport is! IRoomTransport) {
+      throw const PeerChannelError('Room transport unavailable');
+    }
+    await (transport as IRoomTransport).sendToRoom(
+      room,
+      Uint8List.fromList(utf8.encode(encodeClient(message).trimRight())),
+    );
   }
 
   @override
@@ -104,7 +127,10 @@ class PlainPeerChannel implements IChannel, IControlLink {
       // Forward-compat: surface unknown server types as ErrorMessage.
       if (!_controller.isClosed) {
         _controller.add(
-          ErrorMessage(code: 'unsupported_type', message: 'unknown server type'),
+          ErrorMessage(
+            code: 'unsupported_type',
+            message: 'unknown server type',
+          ),
         );
       }
     } catch (_) {

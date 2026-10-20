@@ -99,6 +99,16 @@ class SettingsPage extends StatelessWidget {
                     ),
                   ],
                 ),
+                const _SectionHeader('Control'),
+                _Group(
+                  children: [
+                    _SettingsRow(
+                      icon: LucideIcons.slidersHorizontal,
+                      label: 'Control this Mac',
+                      onTap: () => context.push('/control'),
+                    ),
+                  ],
+                ),
                 const _SectionHeader('Relay'),
                 _Group(
                   children: [

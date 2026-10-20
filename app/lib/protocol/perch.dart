@@ -12,10 +12,12 @@ class PerchRequest extends ClientMessage {
     required this.id,
     required this.method,
     this.params = const {},
+    this.expectedRevision,
   });
   final String id;
   final String method;
   final Map<String, dynamic> params;
+  final int? expectedRevision;
   @override
   Map<String, dynamic> toJson() => {
     'type': 'perch_request',
@@ -23,6 +25,7 @@ class PerchRequest extends ClientMessage {
     'version': 1,
     'method': method,
     'params': params,
+    if (expectedRevision != null) 'expected_revision': expectedRevision,
   };
 }
 
@@ -32,8 +35,8 @@ void _checkPerchVersion(Map<String, dynamic> j) {
   }
 }
 
-void _checkLocalScope(Map<String, dynamic> j) {
-  if (j['scope'] != 'local_broker') {
+void _checkPerchScope(Map<String, dynamic> j) {
+  if (j['scope'] != 'local_broker' && j['scope'] != 'supervisor') {
     throw const FormatException('Unsupported Perch scope');
   }
 }
@@ -44,20 +47,24 @@ class PerchCapabilitiesResult extends ServerMessage {
     required this.methods,
     required this.ackSemantics,
     required this.limits,
+    this.scope = 'local_broker',
   });
   final String id;
+  final String scope;
   final List<String> methods;
   final String ackSemantics;
   final Map<String, int> limits;
   bool get supportsTimeline =>
+      scope == 'local_broker' &&
       methods.contains('agents.list') &&
       methods.contains('agents.events') &&
       ackSemantics == 'delivery_only';
   factory PerchCapabilitiesResult.fromJson(Map<String, dynamic> j) {
     _checkPerchVersion(j);
-    _checkLocalScope(j);
+    _checkPerchScope(j);
     return PerchCapabilitiesResult(
       id: j['id'] as String,
+      scope: j['scope'] as String,
       methods: List<String>.unmodifiable(j['methods'] as List),
       ackSemantics: j['ack_semantics'] as String,
       limits: Map.unmodifiable(
@@ -83,13 +90,26 @@ class PerchResult extends ServerMessage {
   factory PerchResult.fromJson(Map<String, dynamic> j) {
     _checkPerchVersion(j);
     final result = j['result'] as Map<String, dynamic>;
-    _checkLocalScope(result);
+    _checkPerchScope(result);
     return PerchResult(
       id: j['id'] as String,
       method: j['method'] as String,
       result: Map.unmodifiable(result),
     );
   }
+  ControlReply get control {
+    if (result['scope'] != 'supervisor' ||
+        result['revision'] is! int ||
+        (result['revision'] as int) < 0 ||
+        result['data'] is! Map<String, dynamic>) {
+      throw const FormatException('Invalid supervisor result');
+    }
+    return ControlReply(
+      result['revision'] as int,
+      result['data'] as Map<String, dynamic>,
+    );
+  }
+
   AgentSnapshot get snapshot => AgentSnapshot(
     epoch: result['epoch'] as String,
     revision: (result['revision'] as num).toInt(),

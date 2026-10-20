@@ -99,6 +99,49 @@ void main() {
       }
     },
   );
+  for (final name in [
+    'control-capabilities',
+    'daemon-start',
+    'cron-add',
+    'control-conflict',
+    'control-ambiguous',
+  ]) {
+    test('shared $name control golden request and response', () {
+      final golden = fixture(name);
+      final request = golden['request'] as Map<String, dynamic>;
+      final message = request['type'] == 'perch_capabilities_get'
+          ? PerchCapabilitiesGet(id: request['id'] as String)
+          : PerchRequest(
+              id: request['id'] as String,
+              method: request['method'] as String,
+              params: request['params'] as Map<String, dynamic>,
+              expectedRevision: request['expected_revision'] as int?,
+            );
+      expect(jsonDecode(encodeClient(message)), request);
+      final response = decodeServer(jsonEncode(golden['response']));
+      if (response is PerchCapabilitiesResult) {
+        expect(response.scope, 'supervisor');
+        expect(response.supportsTimeline, isFalse);
+        expect(response.methods, contains('cron.run'));
+        expect(response.limits['max_prompt_chars'], 8192);
+      } else if (response is PerchResult) {
+        expect(response.result, (golden['response'] as Map)['result']);
+        expect(
+          response.control.revision,
+          (golden['response'] as Map)['result']['revision'],
+        );
+        expect(
+          response.control.data,
+          (golden['response'] as Map)['result']['data'],
+        );
+      } else {
+        expect(
+          response,
+          isA<PerchError>().having((e) => e.code, 'code', 'conflict'),
+        );
+      }
+    });
+  }
   test('foreign scope and version are rejected', () {
     final golden = fixture('agents-list')['response'] as Map<String, dynamic>;
     expect(

@@ -1,6 +1,7 @@
 // ignore_for_file: lines_longer_than_80_chars
 
 import 'package:app/domain/entities/agent_timeline.dart';
+import 'package:app/domain/entities/perch_control.dart';
 
 part 'perch.dart';
 

@@ -226,8 +226,11 @@ class ConnectionManager extends Service {
 
   /// Rooms for a single peer (or empty list if none known yet). Accepts
   /// url-safe or standard base64.
-  List<RoomInfo> roomsFor(String epk) =>
-      List.unmodifiable(_roomsByPeer[toStandardB64(epk)] ?? const []);
+  List<RoomInfo> roomsFor(String epk) => List.unmodifiable(
+    (_roomsByPeer[toStandardB64(epk)] ?? const <RoomInfo>[]).where(
+      (room) => room.roomId != 'perch-control',
+    ),
+  );
 
   /// Active destination room (the Pi-side room id). 'main' = default.
   String get activeRoomId => _activeRoomId;
@@ -748,8 +751,11 @@ class ConnectionManager extends Service {
         // ignore: unawaited_futures
         _persistRoomsForPeer(key);
         // Same legacy-discovery hook as RoomAnnounced.
-        if (rooms.isNotEmpty) {
-          _maybeAdoptLegacyRoom(key, rooms.first.roomId);
+        final agentRoom = rooms
+            .where((room) => room.roomId != 'perch-control')
+            .firstOrNull;
+        if (agentRoom != null) {
+          _maybeAdoptLegacyRoom(key, agentRoom.roomId);
         }
     }
     if (presenceDirty) _schedulePresenceEmit();
@@ -820,7 +826,14 @@ class ConnectionManager extends Service {
   }
 
   Map<String, List<RoomInfo>> _roomsSnapshot() => Map.unmodifiable(
-    _roomsByPeer.map((k, v) => MapEntry(k, List<RoomInfo>.unmodifiable(v))),
+    _roomsByPeer.map(
+      (k, v) => MapEntry(
+        k,
+        List<RoomInfo>.unmodifiable(
+          v.where((room) => room.roomId != 'perch-control'),
+        ),
+      ),
+    ),
   );
 
   /// Returns `true` if `roomId` is currently announced live for the
@@ -1000,6 +1013,7 @@ class ConnectionManager extends Service {
   ///      subsequent app launches address (peer, room) from the start
   ///      and don't re-trigger discovery.
   void _maybeAdoptLegacyRoom(String peerKey, String discoveredRoom) {
+    if (discoveredRoom == 'perch-control') return;
     final active = _activePeer;
     if (active == null) return;
     if (toStandardB64(active.remoteEpk) != peerKey) return;

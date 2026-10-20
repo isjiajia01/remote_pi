@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:app/protocol/protocol.dart';
 
 /// Abstract channel — testable interface over [PlainPeerChannel].
@@ -14,4 +16,15 @@ abstract class IChannel {
 abstract class IControlLink {
   Stream<ControlInbound> get controlFrames;
   void sendControl(Map<String, dynamic> json);
+}
+
+/// Additional room traffic shares authentication without changing the chat room.
+abstract interface class IRoomChannel {
+  Stream<ServerMessage> messagesForRoom(String room);
+  Future<void> sendToRoom(String room, ClientMessage message);
+}
+
+abstract interface class IRoomTransport {
+  Stream<({String room, Uint8List bytes})> get roomMessages;
+  Future<void> sendToRoom(String room, Uint8List bytes);
 }

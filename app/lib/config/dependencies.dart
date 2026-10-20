@@ -1,3 +1,6 @@
+import 'package:app/domain/contracts/control_client.dart';
+import 'package:app/data/repositories/control_repository.dart';
+import 'package:app/ui/control/viewmodels/control_viewmodel.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -136,6 +139,13 @@ Future<void> setupDependencies() async {
   );
   _injector.addViewModel<TimelineViewModel>(
     () => TimelineViewModel(_injector.get<TimelineReader>()),
+  );
+
+  _injector.addRepository<ControlClient>(
+    () => ControlRepository(_injector.get<ConnectionManager>()),
+  );
+  _injector.addViewModel<ControlViewModel>(
+    () => ControlViewModel(_injector.get<ControlClient>()),
   );
 
   // Repositories
