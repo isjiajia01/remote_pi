@@ -4,6 +4,7 @@ import 'package:app/pairing/storage.dart';
 import 'package:app/protocol/protocol.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'dart:async';
+import 'package:app/ui/chat/widgets/perch_approval_card.dart';
 
 import 'package:app/ui/chat/widgets/chat_actions.dart';
 import 'package:app/ui/chat/widgets/chat_status_banner.dart';
@@ -109,6 +110,26 @@ class _ChatPageState extends State<ChatPage> {
                   onAction: _voicePermission
                       ? AppSettings.openAppSettings
                       : null,
+                ),
+              ),
+            if (vm.approvals.isNotEmpty)
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.4,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      for (final approval in vm.approvals)
+                        PerchApprovalCard(
+                          key: ValueKey(approval.request.id),
+                          approval: approval,
+                          enabled: state is ChatReady && !state.readOnly,
+                          onDecide: (decision) =>
+                              vm.decideApproval(approval, decision),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             Expanded(child: _buildBody(context, state, vm)),

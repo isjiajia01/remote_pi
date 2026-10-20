@@ -2,6 +2,9 @@ import 'package:app/domain/contracts/control_client.dart';
 import 'package:app/data/repositories/control_repository.dart';
 import 'package:app/ui/control/viewmodels/control_viewmodel.dart';
 import 'dart:async';
+import 'dart:convert';
+import 'package:app/data/approvals/approval_service.dart';
+import 'package:app/data/push/push_service.dart';
 import 'dart:io' show Platform;
 
 import 'package:app/config/utils/injector.dart';
@@ -106,6 +109,18 @@ Future<void> setupDependencies() async {
     ),
   );
 
+  String? owner() {
+    final pk = ownerBridge.currentOwnerPk;
+    return pk == null ? null : base64Encode(pk);
+  }
+
+  _injector.addService<ApprovalService>(
+    () => ApprovalService(_injector.get<ConnectionManager>(), owner),
+  );
+  _injector.addService<PushService>(
+    () => PushService(_injector.get<ConnectionManager>(), owner),
+  );
+
   // Plan 29 — on-device speech-to-text. Singleton: it owns a broadcast
   // sound-level stream that must survive across chat navigations; the
   // injector disposes it at app teardown. VoiceInputViewModel never
@@ -163,6 +178,7 @@ Future<void> setupDependencies() async {
       _injector.get<ConnectionManager>(),
       _injector.get<Preferences>(),
       _injector.get<PairingStorage>(),
+      approvals: _injector.get<ApprovalService>(),
     ),
   );
   _injector.addViewModel<HomeViewModel>(

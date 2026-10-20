@@ -661,6 +661,8 @@ class SyncService extends Service {
       case PerchCapabilitiesResult():
       case PerchResult():
       case PerchError():
+      case PerchToolApprovalRequest():
+      case PerchPushResult():
         break;
     }
   }

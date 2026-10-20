@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:app/domain/contracts/approval_client.dart';
+
 import 'package:app/data/local/records/message_record.dart';
 import 'package:app/data/local/records/runtime_record.dart';
 import 'package:app/data/preferences/preferences.dart';
@@ -26,6 +28,19 @@ class ChatViewModel extends ViewModel<ChatState> {
   final ConnectionManager _conn;
   final Preferences _prefs;
   final PairingStorage _storage;
+  final ApprovalClient? _approvals;
+  StreamSubscription<void>? _approvalSub;
+  List<BoundApproval> get approvals => _activePeer == null
+      ? const []
+      : _approvals?.approvalsFor(_activePeer!.remoteEpk, _activeRoomId) ??
+            const [];
+  Future<void> decideApproval(
+    BoundApproval approval,
+    PerchApprovalDecision decision,
+  ) async {
+    if (_approvals == null) throw StateError('Approval unavailable');
+    await _approvals.decide(approval, decision);
+  }
 
   StreamSubscription<List<MessageRecord>>? _msgsSub;
   StreamSubscription<RuntimeRecord>? _runtimeSub;
@@ -59,8 +74,18 @@ class ChatViewModel extends ViewModel<ChatState> {
   String? _peerOfflineReason;
   ConnectionStatus? _lastStatus;
 
-  ChatViewModel(this._read, this._sync, this._conn, this._prefs, this._storage)
-    : super(const ChatReady(messages: [])) {
+  ChatViewModel(
+    this._read,
+    this._sync,
+    this._conn,
+    this._prefs,
+    this._storage, {
+    ApprovalClient? approvals,
+  }) : _approvals = approvals,
+       super(const ChatReady(messages: [])) {
+    _approvalSub = _approvals?.changes.listen((_) {
+      if (!_disposed) notifyListeners();
+    });
     // Plan/32f — do NOT seed _streaming/_working from the shared SyncService
     // here: it may still be bound to the PREVIOUS chat (this VM is recreated
     // on session switch, before _bootstrap rebinds via activate). Seeding now
@@ -403,6 +428,7 @@ class ChatViewModel extends ViewModel<ChatState> {
     _disposed = true;
     _msgsSub?.cancel();
     _runtimeSub?.cancel();
+    _approvalSub?.cancel();
     _streamingSub?.cancel();
     _workingSub?.cancel();
     _queuedSub?.cancel();

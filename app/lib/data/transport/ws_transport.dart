@@ -103,10 +103,16 @@ class WsTransport implements PeerTransport, IControlLink, IRoomTransport {
             // the chat they're now viewing. When senderRoom doesn't
             // match the currently-addressed Pi cwd, drop the payload.
             // Legacy Pis without `room` route unconditionally.
-            if (senderRoom == 'perch-control') {
-              transport._roomMessages.add((room: senderRoom!, bytes: bytes));
-              return;
+            // Room consumers retain origin bindings; do not attribute another
+            // subscribed machine's approval to the currently selected peer.
+            if (_normalizeToStandard(frame['peer'] as String) ==
+                transport._peerPubkey) {
+              transport._roomMessages.add((
+                room: senderRoom ?? transport._activeRoom,
+                bytes: bytes,
+              ));
             }
+            if (senderRoom == 'perch-control') return;
             if (senderRoom != null && senderRoom != transport._activeRoom) {
               debugPrint(
                 '[ws-in] bytes=${rawStr.length} kind=envelope '

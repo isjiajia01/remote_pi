@@ -306,6 +306,9 @@ GoRouter buildRouter(
                         ViewmodelProvider<UpdateBannerViewModel>(),
                       ],
                       child: HomePage(
+                        notificationUnavailable:
+                            st.uri.queryParameters['notification'] ==
+                            'unavailable',
                         pairedPeerEpk:
                             (st.extra
                                     as Map<String, dynamic>?)?['pairedPeerEpk']

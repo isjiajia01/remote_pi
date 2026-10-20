@@ -769,6 +769,8 @@ sealed class ServerMessage {
       'perch_capabilities_result' => PerchCapabilitiesResult.fromJson(json),
       'perch_result' => PerchResult.fromJson(json),
       'perch_error' => PerchError.fromJson(json),
+      'perch_tool_approval_request' => PerchToolApprovalRequest.fromJson(json),
+      'perch_push_result' => PerchPushResult.fromJson(json),
       'agent_chunk' => AgentChunk.fromJson(json),
       'agent_done' => AgentDone.fromJson(json),
       'tool_request' => ToolRequest.fromJson(json),

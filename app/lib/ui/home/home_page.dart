@@ -18,8 +18,13 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.pairedPeerEpk});
+  const HomePage({
+    super.key,
+    this.pairedPeerEpk,
+    this.notificationUnavailable = false,
+  });
   final String? pairedPeerEpk;
+  final bool notificationUnavailable;
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -113,6 +118,13 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           const SliverToBoxAdapter(child: UpdateBanner()),
+          if (widget.notificationUnavailable)
+            const SliverToBoxAdapter(
+              child: AppBanner(
+                message:
+                    'This notification’s session is unavailable. Open an agent to reconnect.',
+              ),
+            ),
           if (state is HomeList && state.relay == HomeRelay.offline)
             SliverToBoxAdapter(
               child: AppBanner(
