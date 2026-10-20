@@ -5,6 +5,9 @@ import 'package:app/data/transport/relay_config.dart';
 import 'package:app/domain/contracts/relay_reachability.dart';
 import 'package:app/ui/onboarding/states/onboarding_state.dart';
 import 'package:app/ui/onboarding/viewmodels/onboarding_viewmodel.dart';
+import 'package:app/ui/onboarding/widgets/relay_step.dart';
+import 'package:app/ui/core/themes/themes.dart';
+import 'package:flutter/material.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -156,6 +159,72 @@ void main() {
     await vm.continueAnyway();
     expect(current().step, OnboardingStep.relay);
   });
+
+  testWidgets(
+    'online success row is visible above the button for 400ms before advancing',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 568);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      custom('https://my-relay.example');
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildLightTheme(),
+          home: Scaffold(
+            body: MediaQuery(
+              data: const MediaQueryData(
+                size: Size(390, 568),
+                textScaler: TextScaler.linear(1),
+              ),
+              child: AnimatedBuilder(
+                animation: vm,
+                builder: (context, _) {
+                  final state = current();
+                  if (state.step == OnboardingStep.pair) {
+                    return const Text('Pair');
+                  }
+                  return RelayStep(
+                    state: state,
+                    onChoice: vm.setRelayChoice,
+                    onCustomUrl: vm.setCustomRelayUrl,
+                    onBack: vm.back,
+                    onNext: vm.checkAndContinue,
+                    onContinueAnyway: vm.continueAnyway,
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      final checking = vm.checkAndContinue();
+      await tester.pump();
+      final row = find.text('Reachable · 120 ms');
+      expect(row, findsOneWidget);
+      expect(
+        tester.widget<Text>(row).style!.color,
+        tester.element(row).colors.online,
+      );
+      final bounds = tester.getRect(row);
+      expect(bounds.top, greaterThanOrEqualTo(0));
+      expect(
+        bounds.bottom,
+        lessThan(tester.getRect(find.text('Check & continue')).top),
+      );
+      expect(bounds.bottom, lessThan(568));
+      await tester.pump(const Duration(milliseconds: 399));
+      expect(row, findsOneWidget);
+      expect(find.text('Pair'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      expect(row, findsNothing);
+      expect(find.text('Pair'), findsOneWidget);
+      await checking;
+      expect(prefs.relayUrl, 'https://my-relay.example');
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   test('success stays visible for 400ms, then persists and advances', () {
     fakeAsync((time) {

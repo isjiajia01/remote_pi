@@ -138,29 +138,29 @@ class _RelayStepState extends State<RelayStep> {
                       ],
                     ),
                   ),
-                if (s.relayCheck == RelayCheckStatus.reachable)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Row(
-                      children: [
-                        Icon(
-                          LucideIcons.check,
-                          color: context.colors.online,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Reachable · ${s.latencyMs} ms',
-                          style: context.typo.footnote.copyWith(
-                            color: context.colors.online,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
               ],
             ),
           ),
+          if (s.relayCheck == RelayCheckStatus.reachable)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                children: [
+                  Icon(
+                    LucideIcons.check,
+                    color: context.colors.online,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Reachable · ${s.latencyMs} ms',
+                    style: context.typo.footnote.copyWith(
+                      color: context.colors.online,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Stack(
             alignment: Alignment.centerLeft,
             children: [

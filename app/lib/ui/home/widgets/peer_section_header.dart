@@ -19,28 +19,23 @@ class AgentSectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text(
-            label.toUpperCase(),
-            style: context.typo.sectionLabel,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        if (summary.isNotEmpty) ...[
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
+    child: SizedBox(
+      width: double.infinity,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          Text(label.toUpperCase(), style: context.typo.sectionLabel),
+          if (summary.isNotEmpty)
+            Text(
               summary,
               style: context.typo.caption.copyWith(color: context.colors.ink2),
-              maxLines: 2,
               textAlign: TextAlign.end,
             ),
-          ),
         ],
-      ],
+      ),
     ),
   );
 }

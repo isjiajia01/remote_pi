@@ -44,6 +44,7 @@ Future<void> pumpRow(
   AgentStatus status = AgentStatus.online,
   double width = 430,
   VoidCallback? onOpen,
+  HomeItem? rowItem,
 }) async {
   tester.view.physicalSize = Size(width, 932);
   tester.view.devicePixelRatio = 1;
@@ -60,7 +61,7 @@ Future<void> pumpRow(
             child: SizedBox(
               width: width,
               child: AgentRow(
-                item: item(status),
+                item: rowItem ?? item(status),
                 now: now,
                 onOpen: onOpen ?? () {},
               ),
@@ -89,6 +90,68 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets(
+    'model ids shorten in mono and profile names keep UI typography',
+    (tester) async {
+      for (final model in [
+        'anthropic/claude-sonnet-4.5-20250929',
+        'Claude Sonnet 4.5 (work profile)',
+      ]) {
+        await pumpRow(
+          tester,
+          rowItem: HomeItem(
+            peer: mac,
+            room: item(AgentStatus.online).room.copyWith(model: model),
+          ),
+        );
+        final isId = model.startsWith('anthropic/');
+        final text = tester.widget<Text>(
+          find.text(isId ? 'sonnet-4.5' : model),
+        );
+        expect(text.style!.fontFamily, isId ? kMonoFamily : isNot(kMonoFamily));
+      }
+    },
+  );
+
+  testWidgets(
+    'preview hides empty and one-character samples, keeps prose on one line',
+    (tester) async {
+      for (final preview in [
+        '',
+        ' ',
+        '1',
+        ' 1 ',
+        'A longer preview that can be truncated',
+      ]) {
+        await pumpRow(
+          tester,
+          rowItem: HomeItem(
+            peer: mac,
+            room: item(AgentStatus.online).room,
+            activity: activity.copyWith(lastMessagePreview: preview),
+          ),
+        );
+        if (preview.trim().length < 2) {
+          expect(find.text(preview.trim()), findsNothing);
+        } else {
+          final finder = find.text(preview);
+          final text = tester.widget<Text>(finder);
+          expect(text.maxLines, 1);
+          expect(text.overflow, TextOverflow.ellipsis);
+          final context = tester.element(finder);
+          expect(
+            text.style,
+            context.typo.subhead.copyWith(color: context.colors.ink2),
+          );
+          final padding = tester.widget<Padding>(
+            find.ancestor(of: finder, matching: find.byType(Padding)).first,
+          );
+          expect(padding.padding, const EdgeInsets.only(top: 8));
+        }
+      }
+    },
+  );
+
   testWidgets('home cwd stays tilde and long cwd truncates only in the middle', (
     tester,
   ) async {

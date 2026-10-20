@@ -68,6 +68,11 @@ class _AgentRowState extends State<AgentRow> {
         ? 'Last known: ${status.label}'
         : status.label;
     final age = activityTime(item.activity?.lastMessageAt, now);
+    final preview = item.activity?.lastMessagePreview?.trim() ?? '';
+    final model = item.room.model?.trim() ?? '';
+    final isModelId = RegExp(
+      r'^[a-z0-9][a-z0-9._:/-]*[0-9][a-z0-9._:/-]*$',
+    ).hasMatch(model);
     final path = shortPath(item.room.cwd ?? '—');
     final row = Semantics(
       button: true,
@@ -152,8 +157,11 @@ class _AgentRowState extends State<AgentRow> {
                           runSpacing: 6,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            if (item.room.model?.isNotEmpty ?? false)
-                              MetaChip(label: shortModel(item.room.model!)),
+                            if (model.isNotEmpty)
+                              MetaChip(
+                                label: isModelId ? shortModel(model) : model,
+                                monospace: isModelId,
+                              ),
                             if (item.room.thinking != null)
                               MetaChip(
                                 label: 'think: ${item.room.thinking!.wire}',
@@ -185,12 +193,11 @@ class _AgentRowState extends State<AgentRow> {
                             ),
                           ),
                         if (MediaQuery.sizeOf(context).width >= 390 &&
-                            (item.activity?.lastMessagePreview?.isNotEmpty ??
-                                false))
+                            preview.length >= 2)
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
-                              item.activity!.lastMessagePreview!,
+                              preview,
                               style: context.typo.subhead.copyWith(
                                 color: c.ink2,
                               ),

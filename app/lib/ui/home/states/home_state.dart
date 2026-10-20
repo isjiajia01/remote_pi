@@ -21,8 +21,12 @@ class HomeNoPeer extends HomeState {
   const HomeNoPeer();
 }
 
-String machineLabel(PeerRecord peer) =>
-    (peer.nickname?.isNotEmpty ?? false) ? peer.nickname! : peer.sessionName;
+String machineLabel(PeerRecord peer) => (peer.nickname?.isNotEmpty ?? false)
+    ? peer.nickname!
+    : peer.sessionName.replaceFirst(
+        RegExp(r'\.local$', caseSensitive: false),
+        '',
+      );
 
 String projectLabel(RoomInfo room) =>
     room.cwd?.split('/').where((s) => s.isNotEmpty).lastOrNull ??

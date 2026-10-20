@@ -136,6 +136,22 @@ void main() {
       expect(storage.peers.single.nickname, 'Office');
       expect(find.text('Office'), findsOneWidget);
 
+      final remove = find.bySemanticsLabel('Remove Office');
+      final removeText = find.descendant(
+        of: remove,
+        matching: find.text('Remove'),
+      );
+      expect(removeText, findsOneWidget);
+      expect(
+        tester.widget<Text>(removeText).style!.color,
+        tester.element(removeText).colors.error,
+      );
+      final button = find.ancestor(
+        of: remove,
+        matching: find.byType(CupertinoButton),
+      );
+      expect(tester.getSize(button).height, greaterThanOrEqualTo(44));
+      expect(tester.getSize(button).width, greaterThanOrEqualTo(44));
       await tester.tap(find.bySemanticsLabel('Remove Office'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));

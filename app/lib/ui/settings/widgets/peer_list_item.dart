@@ -2,7 +2,6 @@ import 'package:app/pairing/storage.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:app/ui/core/widgets/widgets.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Configuration row: tap to rename, swipe or use the trailing removal action.
 class PeerListItem extends StatefulWidget {
@@ -135,13 +134,16 @@ class _PeerListItemState extends State<PeerListItem> {
           else
             CupertinoButton(
               padding: const EdgeInsets.symmetric(horizontal: 12),
+              minimumSize: const Size(44, 44),
               onPressed: _remove,
               child: Semantics(
                 label: 'Remove $name',
-                child: Icon(
-                  LucideIcons.trash2,
-                  size: 20,
-                  color: context.colors.error,
+                excludeSemantics: true,
+                child: Text(
+                  'Remove',
+                  style: context.typo.body.copyWith(
+                    color: context.colors.error,
+                  ),
                 ),
               ),
             ),
