@@ -112,3 +112,34 @@ inside other extensions. Trusted tools must tolerate immutable input arguments.
 
 `tool-approval.json` is a golden request/decision pair consumed by TypeScript
 tests, including digest verification. No client-side approval feature is implied.
+
+## APNs device registration (Phase 5b-1, extension only)
+
+Default OFF. Local `~/.pi/remote/perch-push.json` enables the sender with
+`{enabled:true,key_path,key_id,team_id,topic:"dev.zhangjiajia.perch",environment:"sandbox"|"production"}`.
+No config/key path comes from the wire. `PERCH_PUSH_CONFIG_PATH` and
+`PERCH_PUSH_TOKEN_DIR` allow isolated config/registry paths; `REMOTE_PI_HOME`
+overwrites the default home prefix. The README in pi-extension documents setup.
+
+`perch_push_register` / `perch_push_unregister` carry
+`{type,id,version:1,owner,token,environment}`. Exact fields only; nonempty ID at
+most 256 characters, token is 64–512 hex characters of even length, environment
+is sandbox or production. `owner` must exactly match the canonical authenticated
+relay sender and remain paired/connected before the local mutation. Registration
+requires enabled push; unregister remains available while disabled. Responses
+are `perch_push_result {type,id,version:1,registered:true|false}` or the common
+`perch_error` (unauthorized, unsupported, forbidden, invalid_argument, internal).
+Unknown Owners cannot register/unregister another Owner's token.
+
+`push.json` is the golden register/unregister response and APNs payload fixture,
+consumed by tests. Payload fields are fixed generic `aps.alert`/sound plus
+`kind`, `event_id`, `session_id` and approval-only `tool_call_id`. These IDs are
+opaque; no tool name/arguments, text, results or other arbitrary fields pass
+through. `approval_request` is emitted when a 5a challenge is published;
+`session_finished` means SDK agent_end for one run. It is not a delivery or
+execution ACK. Devices are filtered by configured APNs environment and current
+pairing before sending. BadDeviceToken/410 removes only the rejected record;
+a fresh re-registration is preserved if a stale in-flight rejection arrives.
+Dedup is process-local, bounded to 4096 Owner/event entries and resets on restart
+or local config changes. Every send has a 5-second deadline. Tests use only
+throwaway ES256 keys and a local fake HTTP/2 APNs server.

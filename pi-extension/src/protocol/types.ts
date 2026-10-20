@@ -1,5 +1,6 @@
 import type { PerchClientMessage, PerchServerMessage } from "./perch.js";
 import type { ApprovalDecision, ApprovalRequest } from "./approvals.js";
+import type { PushClientMessage, PushResult } from "./push.js";
 
 export type PairErrorCode =
   | "token_expired"
@@ -176,6 +177,7 @@ export type ExtensionUiResponseWire =
     };
 
 export type ClientMessage =
+  | PushClientMessage
   | ApprovalDecision
   | PerchClientMessage
   | { type: "pair_request"; id: string; token: string; device_name: string }
@@ -266,6 +268,7 @@ export type SessionHistoryEvent =
   | { ts: number; type: "compaction"; summary: string; tokens_before: number };
 
 export type ServerMessage =
+  | PushResult
   | ApprovalRequest
   | PerchServerMessage
   | {

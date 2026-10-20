@@ -709,3 +709,55 @@ for palette and export sizes.
 ## License
 
 MIT
+
+## Perch APNs push (Phase 5b-1, extension only)
+
+Push is **OFF by default**, independently of tool approvals. To opt in, create
+`~/.pi/remote/perch-push.json` locally, with restrictive permissions:
+
+```json
+{
+  "enabled": true,
+  "key_path": "/absolute/path/to/AuthKey_EXAMPLE.p8",
+  "key_id": "EXAMPLE001",
+  "team_id": "EXAMPLE001",
+  "topic": "dev.zhangjiajia.perch",
+  "environment": "sandbox"
+}
+```
+
+Use `production` for a production APNs device token. The key must be an ES256
+(P-256) APNs signing key. Missing, disabled or invalid configuration disables
+sending and registration without opening a key. There is no remote config or
+key setter. Config is rechecked on registration/events; an already submitted
+request can complete after disabling. Keys are opened lazily when sending;
+provider JWTs refresh after at most 50 minutes and once on ExpiredProviderToken.
+
+A paired, authenticated Owner can send `perch_push_register` or
+`perch_push_unregister` with `{type,id,version:1,owner,token,environment}`.
+The Owner claim must match the authenticated relay sender. Reply is
+`perch_push_result {type,id,version:1,registered}` or `perch_error`. Unregister
+also works with sending disabled. Register every current device token; unregister
+old tokens when rotating. Owner/environment/token records live in
+`~/.pi/remote/perch-push-tokens/` as atomic mode-0600 files (directory 0700).
+Pairing is checked again before each send, so stale revoked records cannot
+receive notifications. APNs 410 and BadDeviceToken responses remove that
+registration; transient failures retain it, without automatic event retries.
+
+Approval challenges published by the 5a gate emit `approval_request` alerts;
+`agent_end` emits `session_finished` once per run, including to registered
+Owners currently offline. Approval rules still require a connected Owner and
+remain unchanged. Alerts contain a fixed generic message plus only event kind,
+event/session IDs and, for approvals, tool-call ID. They contain no tool names,
+arguments, prompts, chat text or results. APNs transport uses built-in HTTP/2,
+alert priority 10 and an event-derived collapse ID. A bounded process-local
+4096-entry Owner/event dedup cache suppresses concurrent/repeated sends;
+restart, eviction or config changes reset that guarantee. Delivery is best
+effort and does not prove execution or completion observed by the phone.
+
+For isolated use/tests, `PERCH_PUSH_CONFIG_PATH` overrides the config path,
+`PERCH_PUSH_TOKEN_DIR` overrides registry storage, and `REMOTE_PI_HOME` overrides
+the home prefix for their defaults. Tests generate throwaway P-256 keys and
+inject a loopback fake HTTP/2 endpoint in code; no dependency or real APNs
+request is needed. Wire/payload fixtures are in
+[`push.json`](../.orchestration/contracts/perch-v1/push.json).

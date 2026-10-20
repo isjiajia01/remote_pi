@@ -1,0 +1,32 @@
+{
+  "register": {
+    "request": {
+      "type": "perch_push_register",
+      "id": "push-register-1",
+      "version": 1,
+      "owner": "paired-owner",
+      "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "environment": "sandbox"
+    },
+    "response": { "type": "perch_push_result", "id": "push-register-1", "version": 1, "registered": true }
+  },
+  "unregister": {
+    "request": {
+      "type": "perch_push_unregister",
+      "id": "push-unregister-1",
+      "version": 1,
+      "owner": "paired-owner",
+      "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "environment": "sandbox"
+    },
+    "response": { "type": "perch_push_result", "id": "push-unregister-1", "version": 1, "registered": false }
+  },
+  "approval": {
+    "event": { "kind": "approval_request", "event_id": "approval-1", "session_id": "session-1", "tool_call_id": "call-1" },
+    "payload": { "aps": { "alert": "Perch has an update", "sound": "default" }, "kind": "approval_request", "event_id": "approval-1", "session_id": "session-1", "tool_call_id": "call-1" }
+  },
+  "finished": {
+    "event": { "kind": "session_finished", "event_id": "run-1", "session_id": "session-1" },
+    "payload": { "aps": { "alert": "Perch has an update", "sound": "default" }, "kind": "session_finished", "event_id": "run-1", "session_id": "session-1" }
+  }
+}

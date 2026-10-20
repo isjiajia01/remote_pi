@@ -72,6 +72,7 @@ import { RelayClient, RoomAlreadyOpenError } from "./transport/relay_client.js";
 import { handlePerchMessage, perchError, type PerchServerMessage } from "./protocol/perch.js";
 import { PlainPeerChannel } from "./transport/peer_channel.js";
 import { loadApprovalConfig, ToolApprovals } from "./approvals.js";
+import { loadPushConfig, PerchPush, PushTokenRegistry, pushTokenDir } from "./push.js";
 import {
   createExtensionUiBridge,
   type ExtensionUiBridge,
@@ -173,13 +174,30 @@ let _relayUrl: string | null = null;  // URL used by current _relay connection
  *     `/remote-pi status` output both derive from this.
  */
 const _activePeers = new Map<string, PlainPeerChannel>();
+let _push: { config: string; service: PerchPush } | undefined;
+let _pushSessionId = randomUUID();
+let _pushRunId: string | null = null;
+function _perchPush(): PerchPush {
+  const config = loadPushConfig();
+  const dir = pushTokenDir();
+  const signature = JSON.stringify([config, dir]);
+  if (_push?.config !== signature) {
+    _push = { config: signature, service: new PerchPush(config, new PushTokenRegistry(dir),
+      async (owner) => !!await _findKnownPeer(owner)) };
+  }
+  return _push.service;
+}
 const _toolApprovals = new ToolApprovals({
   owners: () => [..._activePeers.keys()],
   authorized: async (owner) => {
     const channel = _activePeers.get(owner);
     return !!channel && !!await _findKnownPeer(owner) && _activePeers.get(owner) === channel;
   },
-  send: (owner, request) => { _activePeers.get(owner)?.send(request); },
+  send: (owner, request) => {
+    _activePeers.get(owner)?.send(request);
+    void _perchPush().notify(owner, { kind: "approval_request", event_id: request.id,
+      session_id: request.session_id, tool_call_id: request.tool_call_id });
+  },
 });
 let _peerShort = "";  // shortid of the most recently attached peer (UX hint only)
 
@@ -1908,7 +1926,8 @@ function _installAutoListener(relay: RelayClient): () => void {
     // (peer was revoked / never paired). pair_request from unknown peer was
     // already handled above as a legitimate path. We never log inner contents,
     // only inner.type.
-    const errReply: ServerMessage = inner.type === "perch_capabilities_get" || inner.type === "perch_request"
+    const errReply: ServerMessage = inner.type === "perch_capabilities_get" || inner.type === "perch_request" ||
+      inner.type === "perch_push_register" || inner.type === "perch_push_unregister"
       ? perchError(typeof inner.id === "string" ? inner.id : "", "unauthorized", "Sender is not a paired Owner")
       : { type: "error", code: "unknown_peer", message: "Peer not paired — re-scan QR" };
     const errCt = Buffer.from(JSON.stringify(errReply)).toString("base64");
@@ -2182,6 +2201,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   });
 
   pi.on("agent_start", () => {
+    _pushRunId = randomUUID();
     _agentRunActive = true;
     _agentRunGeneration += 1;
   });
@@ -2262,6 +2282,15 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
 
   pi.on("agent_end", () => {
     _toolApprovals.cancelAll();
+    if (_pushRunId) {
+      const event = { kind: "session_finished" as const, event_id: _pushRunId, session_id: _pushSessionId };
+      _pushRunId = null;
+      // Registered devices may be offline; current pairing, rather than a live channel, authorizes push.
+      void listPeers().then((peers) => {
+        const owners = new Set(peers.map((peer) => _inspectPeerRecord(peer)?.runtimeKey).filter((owner) => !!owner));
+        for (const owner of owners) if (owner) void _perchPush().notify(owner, event);
+      }).catch(() => {});
+    }
     // Buffer is fed by `message_end`; here we only finalize the outbound
     // turn signal to every connected owner. No buffer mutation.
     if (_anyPeerActive() && _currentTurnId) {
@@ -2353,6 +2382,8 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   // bound to the current session.
   pi.on("session_start", (_event, ctx) => {
     _toolApprovals.resetSession();
+    _pushSessionId = randomUUID();
+    _pushRunId = null;
     _lastEventCtx = ctx;
     // session_shutdown disposes per-session pi-ask subscriptions. A host that
     // reuses this module instance does NOT re-run the factory, so rebind the
@@ -2448,6 +2479,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   // best-effort: every step is guarded so a partially-initialised instance
   // (e.g. shutdown lands mid-`_cmdRoot`) tears down without throwing.
   pi.on("session_shutdown", async () => {
+    _pushRunId = null;
     _toolApprovals.resetSession();
     // Revoke async authority synchronously, before any teardown await. `_disposed`
     // blocks the outgoing continuation immediately; the root and candidate
@@ -4396,6 +4428,15 @@ export function _routeClientMessageFrom(
   msg: ClientMessage,
   ctx: Pick<ExtensionContext, "abort">,
 ): void {
+  if (msg.type === "perch_push_register" || msg.type === "perch_push_unregister") {
+    const owner = [..._activePeers].find(([, channel]) => channel === sender)?.[0];
+    if (!owner) { sender.send(perchError(msg.id, "unauthorized", "Sender is not a paired Owner")); return; }
+    void _perchPush().handle(owner, msg, async () => {
+      const paired = await _findKnownPeer(owner);
+      return !!paired && _activePeers.get(owner) === sender;
+    }).then((result) => { if (_activePeers.get(owner) === sender) sender.send(result); });
+    return;
+  }
   if (msg.type === "perch_tool_approval_decision") {
     const owner = [..._activePeers].find(([, channel]) => channel === sender)?.[0];
     if (owner) void _toolApprovals.decide(owner, msg);

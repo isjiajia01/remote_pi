@@ -6,7 +6,9 @@
  */
 import { describe, expect, test, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
+import { createServer } from "node:http2";
+import { ApnsSender, PushTokenRegistry } from "./push.js";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -663,6 +665,80 @@ describe("state machine + pair_request flow", () => {
       expect(await hook({ type: "tool_call", toolName: "danger", input: {} }, { cwd })).toHaveProperty("block", true);
     } finally {
       await captureHandler("remote-pi stop")("", makeMockCtx(cwd));
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("Perch push registration uses relay Owner, approval and completion emit opaque local APNs alerts", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "perch-push-hook-"));
+    const configPath = join(cwd, "perch-push.json");
+    const tokenDir = join(cwd, "tokens");
+    const token = "a".repeat(64);
+    const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    const keyPath = join(cwd, "throwaway.p8");
+    writeFileSync(keyPath, pair.privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+    const config = { enabled: true as const, key_path: keyPath, key_id: "TESTKEY001", team_id: "TESTTEAM01",
+      topic: "dev.zhangjiajia.perch" as const, environment: "sandbox" as const };
+    writeFileSync(configPath, JSON.stringify(config));
+    mkdirSync(join(cwd, ".pi", "remote-pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "remote-pi", "perch-approvals.json"),
+      JSON.stringify({ enabled: true, tools: ["danger"], timeout_ms: 1000 }));
+    const payloads: Record<string, unknown>[] = [];
+    const server = createServer();
+    server.on("stream", (stream) => {
+      let body = "";
+      stream.setEncoding("utf8");
+      stream.on("data", (chunk: string) => { body += chunk; });
+      stream.on("end", () => { payloads.push(JSON.parse(body)); stream.respond({ ":status": 200 }); stream.end(); });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("No fake APNs port");
+    const localSender = new ApnsSender(config, `http://127.0.0.1:${address.port}`);
+    const localSend = localSender.send.bind(localSender);
+    const sender = vi.spyOn(ApnsSender.prototype, "send").mockImplementation(localSend);
+    vi.stubEnv("PERCH_PUSH_CONFIG_PATH", configPath);
+    vi.stubEnv("PERCH_PUSH_TOKEN_DIR", tokenDir);
+    try {
+      await _startRelayForTest(makeMockCtx(cwd));
+      const hooks = new Map<string, (event: object, ctx: object) => Promise<unknown>>();
+      const { pi } = makeMockPi();
+      pi.on = ((name: string, handler: (event: object, ctx: object) => Promise<unknown>) => { hooks.set(name, handler); }) as ExtensionAPI["on"];
+      extension(pi);
+      _knownPeers.push({ name: "Owner", remote_epk: OWNER_STANDARD_FIXTURE, paired_at: new Date().toISOString() });
+      const relay = relayRef.current!;
+      const send = (peer: string, msg: object) => relay.emit("message", makeInnerLine(peer, msg));
+      const messages = () => relay.send.mock.calls.map((c) => decodeSentCt(c[0] as string).inner);
+      const registration = { type: "perch_push_register", id: "register-hook", version: 1,
+        owner: OWNER_STANDARD_FIXTURE, token, environment: "sandbox" };
+      send(OTHER_OWNER_STANDARD_FIXTURE, registration);
+      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({ type: "perch_error", id: "register-hook" })));
+      send(OWNER_STANDARD_FIXTURE, { ...registration, id: "spoof", owner: OTHER_OWNER_STANDARD_FIXTURE });
+      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({ id: "spoof", error: expect.objectContaining({ code: "unauthorized" }) })));
+      send(OWNER_STANDARD_FIXTURE, registration);
+      await vi.waitFor(() => expect(messages()).toContainEqual({ type: "perch_push_result", id: "register-hook", version: 1, registered: true }));
+      expect(new PushTokenRegistry(tokenDir).devices(OWNER_STANDARD_FIXTURE, "sandbox")).toHaveLength(1);
+      const waiting = hooks.get("tool_call")!({ type: "tool_call", toolName: "danger", toolCallId: "private-call", input: { secret: "DO NOT SEND" } }, { cwd });
+      await vi.waitFor(() => expect(payloads).toHaveLength(1));
+      const request = messages().find((msg) => msg.type === "perch_tool_approval_request")!;
+      expect(payloads[0]).toEqual({ aps: { alert: "Perch has an update", sound: "default" }, kind: "approval_request",
+        event_id: request.id, session_id: request.session_id, tool_call_id: "private-call" });
+      send(OWNER_STANDARD_FIXTURE, { ...request, type: "perch_tool_approval_decision", decision: "allow" });
+      expect(await waiting).toBeUndefined();
+      await hooks.get("agent_start")!({}, { cwd });
+      await hooks.get("agent_end")!({}, { cwd });
+      await vi.waitFor(() => expect(payloads).toHaveLength(2));
+      expect(payloads[1]).toMatchObject({ kind: "session_finished", event_id: expect.any(String), session_id: expect.any(String) });
+      await hooks.get("agent_end")!({}, { cwd });
+      expect(payloads).toHaveLength(2);
+      send(OWNER_STANDARD_FIXTURE, { ...registration, type: "perch_push_unregister", id: "unregister-hook" });
+      await vi.waitFor(() => expect(messages()).toContainEqual({ type: "perch_push_result", id: "unregister-hook", version: 1, registered: false }));
+      expect(new PushTokenRegistry(tokenDir).devices(OWNER_STANDARD_FIXTURE, "sandbox")).toEqual([]);
+    } finally {
+      await captureHandler("remote-pi stop")("", makeMockCtx(cwd));
+      sender.mockRestore();
+      vi.unstubAllEnvs();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
       rmSync(cwd, { recursive: true, force: true });
     }
   });
