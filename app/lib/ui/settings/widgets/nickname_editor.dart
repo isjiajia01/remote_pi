@@ -1,4 +1,5 @@
 import 'package:app/ui/core/themes/themes.dart';
+import 'package:app/ui/core/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -20,10 +21,8 @@ Future<String?> showNicknameEditor(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
     ),
-    builder: (ctx) => Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(ctx).viewInsets.bottom,
-      ),
+    builder: (ctx) => SingleChildScrollView(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
       child: _NicknameEditorSheet(
         currentNickname: currentNickname,
         defaultName: defaultName,
@@ -89,32 +88,25 @@ class _NicknameEditorSheetState extends State<_NicknameEditorSheet> {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          Text(
-            'Nickname',
-            style: TextStyle(
-              color: colors.text,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          Text('Name this machine', style: context.typo.title2),
           const SizedBox(height: 4),
           Text(
             'Local only — the Mac is not notified.',
-            style: TextStyle(color: colors.muted, fontSize: 12),
+            style: context.typo.footnote,
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _ctrl,
             autofocus: true,
             maxLength: 40,
-            style: TextStyle(color: colors.text, fontSize: 15),
+            style: context.typo.body,
             cursorColor: colors.accent,
             decoration: InputDecoration(
               labelText: 'Nickname',
-              labelStyle: TextStyle(color: colors.muted),
+              labelStyle: context.typo.footnote,
               helperText: 'Default: ${widget.defaultName}',
-              helperStyle: TextStyle(color: colors.muted, fontSize: 11),
-              counterStyle: TextStyle(color: colors.muted, fontSize: 11),
+              helperStyle: context.typo.footnote,
+              counterStyle: context.typo.footnote,
             ),
             onSubmitted: (_) => _save(),
           ),
@@ -128,36 +120,8 @@ class _NicknameEditorSheetState extends State<_NicknameEditorSheet> {
             ),
             const SizedBox(height: 4),
           ],
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _cancel,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: colors.muted2,
-                    side: BorderSide(color: colors.border),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: const Text('Cancel'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton(
-                  onPressed: _save,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: colors.accent,
-                    foregroundColor: colors.onAccent,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: const Text(
-                    'Save',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-            ],
-          ),
+          PrimaryButton(label: 'Save', onPressed: _save),
+          SecondaryButton(label: 'Cancel', onPressed: _cancel),
         ],
       ),
     );

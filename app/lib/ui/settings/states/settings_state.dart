@@ -1,30 +1,52 @@
 import 'package:app/pairing/storage.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 
+enum SettingsRelayStatus { unknown, checking, reachable, failed }
+
+class SettingsRelayState {
+  const SettingsRelayState({
+    this.status = SettingsRelayStatus.unknown,
+    this.message,
+    this.latencyMs,
+  });
+
+  final SettingsRelayStatus status;
+  final String? message;
+  final int? latencyMs;
+}
+
 sealed class SettingsState {
-  const SettingsState();
+  const SettingsState({this.relay = const SettingsRelayState()});
+
+  final SettingsRelayState relay;
+
+  SettingsState withRelay(SettingsRelayState relay) => switch (this) {
+    SettingsLoading() => SettingsLoading(relay: relay),
+    SettingsNoPeer() => SettingsNoPeer(relay: relay),
+    SettingsList(:final peers) => SettingsList(peers: peers, relay: relay),
+  };
 }
 
 class SettingsLoading extends SettingsState {
-  const SettingsLoading();
+  const SettingsLoading({super.relay});
 }
 
 class SettingsNoPeer extends SettingsState {
-  const SettingsNoPeer();
+  const SettingsNoPeer({super.relay});
 }
 
-/// One or more peers paired. Settings is config-only now: rename, revoke.
-/// The "currently active" pointer lives in [Preferences] and is consumed
-/// by `/chat` — Settings does not surface it.
+/// Machine configuration; active-session selection stays on the Dashboard.
 class SettingsList extends SettingsState {
-  final List<PeerRecord> peers;
+  const SettingsList({required this.peers, super.relay});
 
-  const SettingsList({required this.peers});
+  final List<PeerRecord> peers;
 
   @override
   bool operator ==(Object other) =>
-      other is SettingsList && listEquals(other.peers, peers);
+      other is SettingsList &&
+      listEquals(other.peers, peers) &&
+      other.relay == relay;
 
   @override
-  int get hashCode => Object.hashAll(peers);
+  int get hashCode => Object.hash(Object.hashAll(peers), relay);
 }

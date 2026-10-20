@@ -130,6 +130,8 @@ Future<void> setupDependencies() async {
     () => ActionsRepository(_injector.get<ConnectionManager>()),
   );
 
+  final packageInfo = await PackageInfo.fromPlatform();
+
   // ViewModels
   _injector.addViewModel<ChatViewModel>(
     () => ChatViewModel(
@@ -153,7 +155,13 @@ Future<void> setupDependencies() async {
       _injector.get<PairingStorage>(),
       _injector.get<Preferences>(),
       _injector.get<ConnectionManager>(),
-      _injector.get<MeshSyncService>(),
+      _injector.get<RelayReachability>(),
+      meshSync: _injector.get<MeshSyncService>(),
+      updateChecker: _injector.get<UpdateChecker>(),
+      urlOpener: _injector.get<UrlOpener>(),
+      appVersion: packageInfo.version,
+      buildNumber: packageInfo.buildNumber,
+      updatesEnabled: Platform.isAndroid,
     ),
   );
   _injector.addViewModel<PairingViewModel>(
@@ -197,7 +205,6 @@ Future<void> setupDependencies() async {
   // from package_info; the manifest fetch + gating live in the ViewModel
   // (silent on iOS via `enabled` and on any fetch failure). Stateless
   // collaborators → addOther (lazy singleton, no dispose hook).
-  final packageInfo = await PackageInfo.fromPlatform();
   final appVersion = packageInfo.version;
   _injector.addOther<UpdateChecker>(() => UpdateCheckerImpl());
   _injector.addOther<DismissedUpdateStore>(() => SecureDismissedUpdateStore());
