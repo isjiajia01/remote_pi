@@ -658,6 +658,9 @@ class SyncService extends Service {
       case ActionOk():
       case ActionError():
       case ModelsList():
+      case PerchCapabilitiesResult():
+      case PerchResult():
+      case PerchError():
         break;
     }
   }

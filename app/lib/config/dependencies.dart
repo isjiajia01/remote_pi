@@ -9,6 +9,7 @@ import 'package:app/data/local/boxes.dart';
 import 'package:app/data/preferences/preferences.dart';
 import 'package:app/data/repositories/home_read_repository.dart';
 import 'package:app/data/repositories/session_read_repository.dart';
+import 'package:app/data/repositories/timeline_repository.dart';
 import 'package:app/data/sync/sync_service.dart';
 import 'package:app/data/transport/channel.dart'; // IChannel
 import 'package:app/data/transport/connection_manager.dart';
@@ -23,6 +24,7 @@ import 'package:app/data/update/update_checker_impl.dart';
 import 'package:app/data/update/url_launcher_opener.dart';
 import 'package:app/data/voice/speech_service.dart';
 import 'package:app/domain/contracts/dismissed_update_store.dart';
+import 'package:app/domain/contracts/timeline_reader.dart';
 import 'package:app/domain/contracts/update_checker.dart';
 import 'package:app/domain/contracts/url_opener.dart';
 import 'package:app/pairing/owner_identity_bridge.dart';
@@ -40,6 +42,7 @@ import 'package:app/ui/onboarding/viewmodels/onboarding_viewmodel.dart';
 import 'package:app/ui/pairing/viewmodels/pairing_viewmodel.dart';
 import 'package:app/ui/settings/viewmodels/settings_viewmodel.dart';
 import 'package:app/ui/update/viewmodels/update_banner_viewmodel.dart';
+import 'package:app/ui/timeline/viewmodels/timeline_viewmodel.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -123,6 +126,16 @@ Future<void> setupDependencies() async {
   );
   _injector.addRepository<HomeReadRepository>(
     () => HomeReadRepository(_injector.get<LocalBoxes>()),
+  );
+
+  _injector.addRepository<TimelineReader>(
+    () => TimelineRepository(
+      _injector.get<ConnectionManager>(),
+      _injector.get<PairingStorage>(),
+    ),
+  );
+  _injector.addViewModel<TimelineViewModel>(
+    () => TimelineViewModel(_injector.get<TimelineReader>()),
   );
 
   // Repositories

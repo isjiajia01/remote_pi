@@ -789,6 +789,9 @@ void main() {
       await _settle();
       expect(s.sync.isWorking, isTrue);
 
+      final workingMetadata = s.conn.roomsStream.firstWhere(
+        (_) => s.conn.isRoomWorking(s.epk, 'main'),
+      ).timeout(const Duration(seconds: 2));
       s.ch.pushControl(
         RoomAnnounced(peer: s.epk, roomId: 'main', startedAt: 1),
       );
@@ -801,9 +804,12 @@ void main() {
           hasThinking: false,
         ),
       );
-      await _settle();
+      await workingMetadata;
       expect(s.sync.isWorking, isTrue);
 
+      final idleMetadata = s.conn.roomsStream.firstWhere(
+        (_) => !s.conn.isRoomWorking(s.epk, 'main'),
+      ).timeout(const Duration(seconds: 2));
       s.ch.pushControl(
         RoomMetaUpdated(
           peer: s.epk,
@@ -813,7 +819,7 @@ void main() {
           hasThinking: false,
         ),
       );
-      await _settle();
+      await idleMetadata;
       expect(s.conn.isRoomWorking(s.epk, 'main'), isFalse);
       expect(s.sync.isWorking, isFalse);
       expect(s.sync.streaming, isNull);

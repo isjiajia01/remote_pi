@@ -1,0 +1,85 @@
+import 'package:app/ui/core/themes/themes.dart';
+import 'package:app/ui/navigation/main_tabs.dart';
+import 'package:app/ui/timeline/states/timeline_state.dart';
+import 'package:app/ui/timeline/viewmodels/timeline_viewmodel.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
+import 'timeline_viewmodel_test.dart' show FakeTimelineReader, golden;
+
+void main() {
+  testWidgets(
+    'three Cupertino tabs retain cursor and cache; background stops polling',
+    (tester) async {
+      final reader = FakeTimelineReader();
+      var creations = 0;
+      late TimelineViewModel vm;
+      final router = GoRouter(
+        initialLocation: '/home',
+        routes: [
+          ShellRoute(
+            builder: (_, state, child) =>
+                ChangeNotifierProvider<TimelineViewModel>(
+                  create: (_) {
+                    creations++;
+                    return vm = TimelineViewModel(reader);
+                  },
+                  child: MainTabs(location: state.uri.path, child: child),
+                ),
+            routes: [
+              GoRoute(
+                path: '/home',
+                builder: (_, _) => const Text('Agents body'),
+              ),
+              GoRoute(
+                path: '/timeline',
+                builder: (_, _) => const Text('Timeline body'),
+              ),
+              GoRoute(
+                path: '/settings',
+                builder: (_, _) => const Text('Settings body'),
+              ),
+            ],
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      addTearDown(reader.updates.close);
+      await tester.pumpWidget(
+        MaterialApp.router(theme: buildLightTheme(), routerConfig: router),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(CupertinoTabBar), findsOneWidget);
+      expect(reader.supportCalls, 0);
+      router.go('/timeline');
+      await tester.pumpAndSettle();
+      expect(creations, 1);
+      expect(reader.requests.single.cursor, 1);
+      reader.pending[0].complete(golden('agents-events').eventPage);
+      await tester.pumpAndSettle();
+      expect(vm.state.events.length, 1);
+      router.go('/settings');
+      await tester.pumpAndSettle();
+      reader.pending[1].complete(golden('agents-events').eventPage);
+      await tester.pumpAndSettle();
+      expect(reader.requests.length, 2);
+      router.go('/timeline');
+      await tester.pumpAndSettle();
+      expect(creations, 1);
+      expect(reader.requests.last.cursor, 2);
+      expect(vm.state.events.length, 1);
+      expect(vm.state.status, TimelineStatus.stale);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      reader.pending[2].complete(golden('agents-events').eventPage);
+      await tester.pumpAndSettle();
+      expect(reader.requests.length, 3);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(reader.requests.length, 4);
+      expect(reader.requests.last.cursor, 2);
+    },
+  );
+}

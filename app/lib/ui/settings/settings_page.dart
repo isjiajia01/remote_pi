@@ -14,9 +14,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key, this.embedded = false});
+  const SettingsPage({super.key, this.embedded = false, this.tabbed = false});
 
   final bool embedded;
+  final bool tabbed;
 
   @override
   Widget build(BuildContext context) {
@@ -30,19 +31,21 @@ class SettingsPage extends StatelessWidget {
             backgroundColor: context.colors.bg,
             border: null,
             automaticallyImplyLeading: false,
-            leading: CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () =>
-                  context.canPop() ? context.pop() : context.go('/home'),
-              child: Semantics(
-                label: embedded ? 'Close' : 'Back',
-                child: Icon(
-                  embedded ? LucideIcons.x : LucideIcons.chevronLeft,
-                  size: 22,
-                  color: context.colors.accent,
-                ),
-              ),
-            ),
+            leading: tabbed
+                ? null
+                : CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () =>
+                        context.canPop() ? context.pop() : context.go('/home'),
+                    child: Semantics(
+                      label: embedded ? 'Close' : 'Back',
+                      child: Icon(
+                        embedded ? LucideIcons.x : LucideIcons.chevronLeft,
+                        size: 22,
+                        color: context.colors.accent,
+                      ),
+                    ),
+                  ),
             largeTitle: Text('Settings', style: context.typo.largeTitle),
           ),
           SliverPadding(

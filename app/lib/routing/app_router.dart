@@ -16,6 +16,9 @@ import 'package:app/ui/chat/widgets/detail_placeholder.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:app/ui/home/home_page.dart';
 import 'package:app/ui/home/viewmodels/home_viewmodel.dart';
+import 'package:app/ui/navigation/main_tabs.dart';
+import 'package:app/ui/timeline/timeline_page.dart';
+import 'package:app/ui/timeline/viewmodels/timeline_viewmodel.dart';
 import 'package:app/ui/onboarding/onboarding_page.dart';
 import 'package:app/ui/onboarding/viewmodels/onboarding_viewmodel.dart';
 import 'package:app/ui/pairing/pairing_page.dart';
@@ -240,78 +243,101 @@ GoRouter buildRouter(
       // does a full-screen root `push('/chat')` instead (see Home._open),
       // which preserves native back/swipe. The detail branch only renders
       // on tablet, where it reacts to [SessionSelection].
-      StatefulShellRoute(
-        builder: (ctx, st, navShell) => navShell,
-        navigatorContainerBuilder: (ctx, navShell, children) {
-          // Two panes only when wide AND Home actually has something to
-          // list. On zero-state (no Pi / empty) we collapse to the single
-          // active branch (the master, full-width + centered) so the user
-          // doesn't see a cramped 360 column next to a big empty
-          // placeholder.
-          final twoPane =
-              isWideLayout(ctx) && !ctx.watch<ShellLayout>().isZeroState;
-          if (!twoPane) {
-            return children[navShell.currentIndex];
-          }
-          // On a notched iPhone in landscape (width ≥ kTabletBreakpoint, so
-          // two-pane), each pane's own SafeArea reads the *full screen* insets
-          // and pads the edge facing the divider too — a phantom horizontal
-          // gutter beside the divider (which side depends on the notch
-          // orientation). Strip the divider-facing inset per pane so content
-          // reaches the divider; outer screen edges + top/bottom stay inset and
-          // the Scaffold backgrounds keep painting full-bleed.
-          return Row(
-            children: [
-              SizedBox(
-                width: 360,
-                child: MediaQuery.removePadding(
-                  context: ctx,
-                  removeRight: true,
-                  child: children[0],
-                ),
-              ),
-              VerticalDivider(width: 1, thickness: 1, color: ctx.colors.border),
-              Expanded(
-                child: MediaQuery.removePadding(
-                  context: ctx,
-                  removeLeft: true,
-                  child: children[1],
-                ),
-              ),
-            ],
-          );
-        },
-        branches: [
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/home',
-                builder: (ctx, st) => MultiProvider(
-                  providers: [
-                    ViewmodelProvider<HomeViewModel>(),
-                    ViewmodelProvider<UpdateBannerViewModel>(),
-                  ],
-                  child: HomePage(
-                    pairedPeerEpk:
-                        (st.extra as Map<String, dynamic>?)?['pairedPeerEpk']
-                            as String?,
+      ShellRoute(
+        builder: (ctx, st, child) => ViewmodelProvider<TimelineViewModel>(
+          child: MainTabs(location: st.uri.path, child: child),
+        ),
+        routes: [
+          StatefulShellRoute(
+            builder: (ctx, st, navShell) => navShell,
+            navigatorContainerBuilder: (ctx, navShell, children) {
+              // Two panes only when wide AND Home actually has something to
+              // list. On zero-state (no Pi / empty) we collapse to the single
+              // active branch (the master, full-width + centered) so the user
+              // doesn't see a cramped 360 column next to a big empty
+              // placeholder.
+              final twoPane =
+                  isWideLayout(ctx) && !ctx.watch<ShellLayout>().isZeroState;
+              if (!twoPane) {
+                return children[navShell.currentIndex];
+              }
+              // On a notched iPhone in landscape (width ≥ kTabletBreakpoint, so
+              // two-pane), each pane's own SafeArea reads the *full screen* insets
+              // and pads the edge facing the divider too — a phantom horizontal
+              // gutter beside the divider (which side depends on the notch
+              // orientation). Strip the divider-facing inset per pane so content
+              // reaches the divider; outer screen edges + top/bottom stay inset and
+              // the Scaffold backgrounds keep painting full-bleed.
+              return Row(
+                children: [
+                  SizedBox(
+                    width: 360,
+                    child: MediaQuery.removePadding(
+                      context: ctx,
+                      removeRight: true,
+                      child: children[0],
+                    ),
                   ),
-                ),
+                  VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: ctx.colors.border,
+                  ),
+                  Expanded(
+                    child: MediaQuery.removePadding(
+                      context: ctx,
+                      removeLeft: true,
+                      child: children[1],
+                    ),
+                  ),
+                ],
+              );
+            },
+            branches: [
+              StatefulShellBranch(
+                routes: [
+                  GoRoute(
+                    path: '/home',
+                    builder: (ctx, st) => MultiProvider(
+                      providers: [
+                        ViewmodelProvider<HomeViewModel>(),
+                        ViewmodelProvider<UpdateBannerViewModel>(),
+                      ],
+                      child: HomePage(
+                        pairedPeerEpk:
+                            (st.extra
+                                    as Map<String, dynamic>?)?['pairedPeerEpk']
+                                as String?,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              // `preload: true` so the detail branch is built up-front and
+              // renders in the tablet's right pane at launch (showing the
+              // placeholder) without first navigating into it. On phone the
+              // branch is built but never displayed.
+              StatefulShellBranch(
+                preload: true,
+                routes: [
+                  GoRoute(
+                    path: '/session',
+                    builder: (ctx, st) => const _DetailPane(),
+                  ),
+                ],
               ),
             ],
           ),
-          // `preload: true` so the detail branch is built up-front and
-          // renders in the tablet's right pane at launch (showing the
-          // placeholder) without first navigating into it. On phone the
-          // branch is built but never displayed.
-          StatefulShellBranch(
-            preload: true,
-            routes: [
-              GoRoute(
-                path: '/session',
-                builder: (ctx, st) => const _DetailPane(),
-              ),
-            ],
+
+          GoRoute(
+            path: '/timeline',
+            builder: (ctx, st) => const TimelinePage(),
+          ),
+          GoRoute(
+            path: '/settings',
+            builder: (ctx, st) => ViewmodelProvider<SettingsViewModel>(
+              child: const SettingsPage(tabbed: true),
+            ),
           ),
         ],
       ),
@@ -379,13 +405,6 @@ GoRouter buildRouter(
             ),
           );
         },
-      ),
-
-      // Settings (entered from /home menu)
-      GoRoute(
-        path: '/settings',
-        builder: (ctx, st) =>
-            ViewmodelProvider<SettingsViewModel>(child: const SettingsPage()),
       ),
     ],
   );

@@ -102,19 +102,6 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                 ),
-                CupertinoButton(
-                  padding: const EdgeInsets.all(10),
-                  minimumSize: const Size(44, 44),
-                  onPressed: () => context.push('/settings'),
-                  child: Semantics(
-                    label: 'Settings',
-                    child: Icon(
-                      LucideIcons.settings,
-                      size: 22,
-                      color: context.colors.ink2,
-                    ),
-                  ),
-                ),
               ],
             ),
           ),

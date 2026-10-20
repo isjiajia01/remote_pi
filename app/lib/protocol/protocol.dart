@@ -1,5 +1,9 @@
 // ignore_for_file: lines_longer_than_80_chars
 
+import 'package:app/domain/entities/agent_timeline.dart';
+
+part 'perch.dart';
+
 // ---------------------------------------------------------------------------
 // Control frames (plano 12 — presence)
 //
@@ -761,6 +765,9 @@ sealed class ServerMessage {
   factory ServerMessage.fromJson(Map<String, dynamic> json) {
     final type = json['type'] as String?;
     return switch (type) {
+      'perch_capabilities_result' => PerchCapabilitiesResult.fromJson(json),
+      'perch_result' => PerchResult.fromJson(json),
+      'perch_error' => PerchError.fromJson(json),
       'agent_chunk' => AgentChunk.fromJson(json),
       'agent_done' => AgentDone.fromJson(json),
       'tool_request' => ToolRequest.fromJson(json),
