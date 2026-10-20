@@ -1,3 +1,5 @@
+import { PerchBrokerReads } from "./perch_reads.js";
+import type { PerchClientMessage } from "../protocol/perch.js";
 import type { Server, Socket } from "node:net";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, posix, win32 } from "node:path";
@@ -139,6 +141,7 @@ interface PeerConn {
   address: string;
   socket: Socket;
   buf: string;
+  reads: AbortController;
 }
 
 const BROKER_NAME = "broker";
@@ -206,6 +209,7 @@ interface SystemBody {
 
 export class Broker {
   private readonly peers = new Map<string, PeerConn>();
+  private readonly perchReads = new PerchBrokerReads(() => this.localPeerInfos());
   private readonly auditPath?: string;
   private readonly onRouted?: BrokerOptions["onRouted"];
   private readonly server: Server;
@@ -281,6 +285,7 @@ export class Broker {
   }
 
   async close(): Promise<void> {
+    this.perchReads.close();
     for (const p of this.peers.values()) p.socket.destroy();
     this.peers.clear();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -289,7 +294,7 @@ export class Broker {
   // ── connection lifecycle ──────────────────────────────────────────────────
 
   private _handleConnection(socket: Socket): void {
-    const conn: PeerConn = { name: "", cwd: "", address: "", socket, buf: "" };
+    const conn: PeerConn = { name: "", cwd: "", address: "", socket, buf: "", reads: new AbortController() };
     socket.setEncoding("utf8");
     socket.on("data", (chunk: string) => this._onData(conn, chunk));
     socket.on("close", () => this._onClose(conn));
@@ -376,6 +381,7 @@ export class Broker {
     // connection, so a rejected replacement cannot drop a healthy peer.
     if (identity.replaceAddress) this._dropPeerAt(identity.replaceAddress);
     this.peers.set(identity.address, conn);
+    this.perchReads.record({ type: "peer_joined", agent: { cwd: conn.cwd, name: conn.name, address: conn.address } });
 
     // `name_assigned` doubles as the compat alias: for a legacy peer it equals
     // `address_assigned` (cwd empty → address == name), so old clients that read
@@ -495,6 +501,8 @@ export class Broker {
     const existing = this.peers.get(address);
     if (!existing) return;
     this.peers.delete(address);
+    existing.reads.abort();
+    this.perchReads.record({ type: "peer_left", agent: { cwd: existing.cwd, name: existing.name, address } });
     // The old socket's close event may arrive after the replacement has been
     // inserted. Clear its address so it cannot delete the replacement.
     existing.address = "";
@@ -502,9 +510,11 @@ export class Broker {
   }
 
   private _onClose(conn: PeerConn): void {
+    conn.reads.abort();
     if (!conn.address) return;
     if (this.peers.get(conn.address) !== conn) return;
     this.peers.delete(conn.address);
+    this.perchReads.record({ type: "peer_left", agent: { cwd: conn.cwd, name: conn.name, address: conn.address } });
     this._broadcastSystem({ type: "peer_left", name: conn.address, address: conn.address }, conn.address);
   }
 
@@ -552,7 +562,7 @@ export class Broker {
       }
     }
 
-    if (this.auditPath) await this._appendAudit(env, delivered, ackStatus);
+    await this._appendAudit(env, delivered, ackStatus);
     this.onRouted?.(env, delivered);
   }
 
@@ -604,6 +614,17 @@ export class Broker {
   private _handleBrokerMessage(env: Envelope): void {
     const body = env.body as { type?: string; peers?: unknown } | null;
     if (!body || typeof body !== "object") return;
+    if (body.type === "perch_request") {
+      const peer = this.peers.get(env.from);
+      if (!peer) return;
+      void this.perchReads.read(body as PerchClientMessage, peer.reads.signal).then((result) => {
+        if (this.peers.get(env.from) !== peer || peer.reads.signal.aborted) return;
+        try {
+          peer.socket.write(serialize({ from: BROKER_NAME, to: env.from, id: uuidv7(), re: env.id, body: result }));
+        } catch { /* peer disconnected */ }
+      });
+      return;
+    }
     if (body.type === "list_peers") {
       const reply: Envelope = {
         from: BROKER_NAME,
@@ -655,6 +676,8 @@ export class Broker {
      */
     via: "uds" | "relay" = "uds",
   ): Promise<void> {
+    this.perchReads.record({ type: "routed", id: env.id, re: env.re, from: env.from,
+      to: env.to, delivered, ack_status: ackStatus, via });
     if (!this.auditPath) return;
     const line = JSON.stringify({
       ts: Date.now(),

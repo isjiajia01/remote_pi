@@ -69,6 +69,7 @@ import type {
   QueuedMessageItem,
 } from "./protocol/types.js";
 import { RelayClient, RoomAlreadyOpenError } from "./transport/relay_client.js";
+import { handlePerchMessage, perchError, type PerchServerMessage } from "./protocol/perch.js";
 import { PlainPeerChannel } from "./transport/peer_channel.js";
 import {
   createExtensionUiBridge,
@@ -1895,11 +1896,9 @@ function _installAutoListener(relay: RelayClient): () => void {
     // (peer was revoked / never paired). pair_request from unknown peer was
     // already handled above as a legitimate path. We never log inner contents,
     // only inner.type.
-    const errReply: ServerMessage = {
-      type: "error",
-      code: "unknown_peer",
-      message: "Peer not paired — re-scan QR",
-    };
+    const errReply: ServerMessage = inner.type === "perch_capabilities_get" || inner.type === "perch_request"
+      ? perchError(typeof inner.id === "string" ? inner.id : "", "unauthorized", "Sender is not a paired Owner")
+      : { type: "error", code: "unknown_peer", message: "Peer not paired — re-scan QR" };
     const errCt = Buffer.from(JSON.stringify(errReply)).toString("base64");
     relay.send(JSON.stringify({ peer: appPeerId, ct: errCt }));
   };
@@ -4381,6 +4380,24 @@ export function _routeClientMessageFrom(
   msg: ClientMessage,
   ctx: Pick<ExtensionContext, "abort">,
 ): void {
+  if (msg.type === "perch_capabilities_get" || msg.type === "perch_request") {
+    const owner = [..._activePeers].find(([, channel]) => channel === sender)?.[0];
+    const node = _meshNode;
+    void handlePerchMessage(msg, async () => {
+      const paired = owner ? await _findKnownPeer(owner) : null;
+      return !!paired && !!owner && _activePeers.get(owner) === sender;
+    }, node ? async (request, timeoutMs) => {
+      const reply = await node.request("broker", request, timeoutMs);
+      const body = reply.body as PerchServerMessage;
+      if (reply.from !== "broker" || body?.id !== request.id || body.version !== 1 ||
+          (body.type !== "perch_result" && body.type !== "perch_error") ||
+          (body.type === "perch_result" && request.type === "perch_request" && body.method !== request.method)) {
+        return perchError(request.id, "unsupported", "Broker does not support Perch reads");
+      }
+      return body;
+    } : null).then((result) => { sender.send(result); });
+    return;
+  }
   // session_sync has its own internal guards — handle before the strict
   // pi-binding guard so a missing _pi doesn't drop the reply.
   if (msg.type === "session_sync") {

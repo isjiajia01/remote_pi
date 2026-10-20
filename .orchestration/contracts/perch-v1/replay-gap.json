@@ -1,0 +1,25 @@
+{
+  "request": {
+    "type": "perch_request",
+    "id": "gap-1",
+    "version": 1,
+    "method": "agents.events",
+    "params": {
+      "epoch": "broker-epoch-1",
+      "cursor": 0
+    }
+  },
+  "response": {
+    "type": "perch_result",
+    "id": "gap-1",
+    "version": 1,
+    "method": "agents.events",
+    "result": {
+      "scope": "local_broker",
+      "epoch": "broker-epoch-1",
+      "cursor": 513,
+      "events": [],
+      "resync_required": true
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "request": {
+    "type": "perch_capabilities_get",
+    "id": "cap-1"
+  },
+  "response": {
+    "type": "perch_capabilities_result",
+    "id": "cap-1",
+    "version": 1,
+    "methods": [
+      "agents.list",
+      "agents.events"
+    ],
+    "scope": "local_broker",
+    "ack_semantics": "delivery_only",
+    "limits": {
+      "retention": 512,
+      "max_events": 128,
+      "max_wait_ms": 25000,
+      "max_subscribers": 8
+    }
+  }
+}

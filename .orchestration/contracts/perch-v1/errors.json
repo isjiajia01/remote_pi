@@ -1,0 +1,65 @@
+[
+  {
+    "type": "perch_error",
+    "id": "error-1",
+    "version": 1,
+    "error": {
+      "code": "unauthorized",
+      "message": "Perch read failed"
+    }
+  },
+  {
+    "type": "perch_error",
+    "id": "error-1",
+    "version": 1,
+    "error": {
+      "code": "forbidden",
+      "message": "Perch read failed"
+    }
+  },
+  {
+    "type": "perch_error",
+    "id": "error-1",
+    "version": 1,
+    "error": {
+      "code": "unsupported",
+      "message": "Perch read failed"
+    }
+  },
+  {
+    "type": "perch_error",
+    "id": "error-1",
+    "version": 1,
+    "error": {
+      "code": "invalid_argument",
+      "message": "Perch read failed"
+    }
+  },
+  {
+    "type": "perch_error",
+    "id": "error-1",
+    "version": 1,
+    "error": {
+      "code": "offline",
+      "message": "Perch read failed"
+    }
+  },
+  {
+    "type": "perch_error",
+    "id": "error-1",
+    "version": 1,
+    "error": {
+      "code": "timeout",
+      "message": "Perch read failed"
+    }
+  },
+  {
+    "type": "perch_error",
+    "id": "error-1",
+    "version": 1,
+    "error": {
+      "code": "internal",
+      "message": "Perch read failed"
+    }
+  }
+]

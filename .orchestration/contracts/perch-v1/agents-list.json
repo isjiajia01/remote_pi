@@ -1,0 +1,28 @@
+{
+  "request": {
+    "type": "perch_request",
+    "id": "list-1",
+    "version": 1,
+    "method": "agents.list",
+    "params": {}
+  },
+  "response": {
+    "type": "perch_result",
+    "id": "list-1",
+    "version": 1,
+    "method": "agents.list",
+    "result": {
+      "scope": "local_broker",
+      "epoch": "broker-epoch-1",
+      "revision": 1,
+      "cursor": 1,
+      "agents": [
+        {
+          "cwd": "/work/perch",
+          "name": "planner",
+          "address": "/work/perch@planner"
+        }
+      ]
+    }
+  }
+}

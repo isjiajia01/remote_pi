@@ -7,7 +7,7 @@
 import { describe, expect, test, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -614,6 +614,57 @@ describe("state machine + pair_request flow", () => {
     }));
 
     await vi.waitFor(() => expect(_getState()).toBe("paired"), { timeout: 2000 });
+  });
+
+  test("Perch negotiation reuses paired Owner check and revocation is rechecked", async () => {
+    // The machine-wide broker can belong to an older live install. This test
+    // needs the broker under test, rather than that unrelated process.
+    const dir = mkdtempSync(join(tmpdir(), "perch-owner-"));
+    const config = await import("./session/global_config.js");
+    const { ipcAddress } = await import("./session/ipc.js");
+    const sock = vi.spyOn(config, "sessionSockPath").mockReturnValue(
+      ipcAddress(`perch-owner-${basename(dir)}`, join(dir, "broker.sock")),
+    );
+    const audit = vi.spyOn(config, "sessionAuditPath").mockReturnValue(join(dir, "audit.jsonl"));
+    try {
+      const owner = OWNER_STANDARD_FIXTURE;
+      _knownPeers.push({ name: "Owner", remote_epk: owner, paired_at: new Date().toISOString() });
+      captureHandler("remote-pi");
+      await _connectForTest(makeMockCtx(dir));
+      expect(_hasMeshNodeForTest()).toBe(true);
+      relayRef.current!.emit("message", makeInnerLine(owner, { type: "perch_capabilities_get", id: "cap-1" }));
+      const messages = () => relayRef.current!.send.mock.calls.map((c) => decodeSentCt(c[0] as string).inner);
+      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({
+        type: "perch_capabilities_result", id: "cap-1", version: 1, ack_semantics: "delivery_only",
+      })));
+      relayRef.current!.emit("message", makeInnerLine(owner, { type: "perch_request", id: "list-1", version: 1, method: "agents.list", params: {} }));
+      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({
+        type: "perch_result", id: "list-1", version: 1, method: "agents.list",
+        result: expect.objectContaining({ scope: "local_broker", revision: 1,
+          agents: [expect.objectContaining({ cwd: realpathSync(dir) })] }),
+      })));
+      const snapshot = messages().find((m) => m.id === "list-1")!.result as { epoch: string; cursor: number };
+      relayRef.current!.emit("message", makeInnerLine(owner, { type: "perch_request", id: "events-1", version: 1,
+        method: "agents.events", params: { epoch: snapshot.epoch, cursor: snapshot.cursor, wait_ms: 1 } }));
+      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({
+        type: "perch_result", id: "events-1", version: 1, method: "agents.events",
+        result: { scope: "local_broker", epoch: snapshot.epoch, cursor: snapshot.cursor, events: [], resync_required: false },
+      })));
+      _knownPeers.length = 0;
+      relayRef.current!.emit("message", makeInnerLine(owner, { type: "perch_request", id: "revoked-1", version: 1, method: "agents.list", params: {} }));
+      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({
+        type: "perch_error", id: "revoked-1", error: expect.objectContaining({ code: "unauthorized" }),
+      })));
+      relayRef.current!.emit("message", makeInnerLine("unpaired", { type: "perch_capabilities_get", id: "unknown-1" }));
+      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({
+        type: "perch_error", id: "unknown-1", error: expect.objectContaining({ code: "unauthorized" }),
+      })));
+    } finally {
+      await captureHandler("remote-pi stop")("", makeMockCtx(dir));
+      sock.mockRestore();
+      audit.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("unknown peer non-pair message → state stays started, no peer added", async () => {
