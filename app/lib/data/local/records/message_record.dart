@@ -128,7 +128,12 @@ class MessageRecord {
           error: t?.error,
         );
       case MsgRole.compaction:
-        return CompactionMsg(id: id, summary: text, tokensBefore: tokensBefore);
+        return CompactionMsg(
+          id: id,
+          summary: text,
+          tokensBefore: tokensBefore,
+          timestamp: ts,
+        );
     }
   }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:app/protocol/protocol.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Plan/57 — full-screen modal rendering an interactive `extension_ui_request`
 /// (ask_user via pi-ask).
@@ -236,11 +237,11 @@ class _ExtensionUiSheetState extends State<ExtensionUiSheet> {
               elevation: 0,
               scrolledUnderElevation: 0,
               leading: IconButton(
-                icon: const Icon(Icons.close),
-                tooltip: 'Cancel',
+                icon: const Icon(LucideIcons.x),
+                tooltip: 'Dismiss',
                 onPressed: _submitting ? null : _cancel,
               ),
-              title: Text(title),
+              title: Text(title, style: context.typo.title2),
             ),
             body: ask != null
                 ? _buildRich(context, ask)
@@ -273,7 +274,7 @@ class _ExtensionUiSheetState extends State<ExtensionUiSheet> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: Text(q.prompt, style: text.titleMedium)),
+            Expanded(child: Text(q.prompt, style: context.typo.title2)),
             // pi-ask marks `required` as advisory only (never blocks
             // submission), so it renders as a hint, not a validation gate.
             if (q.required)
@@ -311,8 +312,13 @@ class _ExtensionUiSheetState extends State<ExtensionUiSheet> {
           onChanged: (_) => setState(() {}),
           decoration: InputDecoration(
             hintText: 'Type your own…',
+            filled: true,
+            fillColor: colors.surface2,
             isDense: true,
-            border: const OutlineInputBorder(),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: context.colors.hairline),
+            ),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 12,
@@ -340,7 +346,8 @@ class _ExtensionUiSheetState extends State<ExtensionUiSheet> {
       borderRadius: BorderRadius.circular(10),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        constraints: const BoxConstraints(minHeight: 52),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(
           color: selected
               ? colors.accent.withValues(alpha: 0.10)
@@ -359,11 +366,9 @@ class _ExtensionUiSheetState extends State<ExtensionUiSheet> {
                 Icon(
                   multi
                       ? (selected
-                            ? Icons.check_box
-                            : Icons.check_box_outline_blank)
-                      : (selected
-                            ? Icons.radio_button_checked
-                            : Icons.radio_button_unchecked),
+                            ? LucideIcons.squareCheck
+                            : LucideIcons.square)
+                      : (selected ? LucideIcons.circleDot : LucideIcons.circle),
                   size: 20,
                   color: selected ? colors.accent : colors.muted,
                 ),
@@ -427,19 +432,33 @@ class _ExtensionUiSheetState extends State<ExtensionUiSheet> {
             const SizedBox(height: 16),
           ],
           switch (widget.request.method) {
-            ExtensionUiMethod.select => RadioGroup<String>(
-              groupValue: _singleValue,
-              onChanged: (v) => setState(() => _singleValue = v),
-              child: Column(
-                children: [
-                  for (final opt in widget.request.options)
-                    RadioListTile<String>(
-                      value: opt,
-                      title: Text(opt),
-                      enabled: !_submitting,
+            ExtensionUiMethod.select => Column(
+              children: [
+                for (final option in widget.request.options)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Material(
+                      color: context.colors.surface,
+                      borderRadius: BorderRadius.circular(10),
+                      child: ListTile(
+                        minTileHeight: 52,
+                        onTap: _submitting
+                            ? null
+                            : () => setState(() => _singleValue = option),
+                        leading: Icon(
+                          _singleValue == option
+                              ? LucideIcons.circleDot
+                              : LucideIcons.circle,
+                          color: _singleValue == option
+                              ? context.colors.accent
+                              : context.colors.ink2,
+                          size: 20,
+                        ),
+                        title: Text(option, style: context.typo.body),
+                      ),
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
             ExtensionUiMethod.input || ExtensionUiMethod.editor => TextField(
               controller: _textController,
@@ -450,12 +469,17 @@ class _ExtensionUiSheetState extends State<ExtensionUiSheet> {
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 hintText: widget.request.placeholder ?? '',
-                border: const OutlineInputBorder(),
+                filled: true,
+                fillColor: context.colors.surface2,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: context.colors.hairline),
+                ),
               ),
             ),
             ExtensionUiMethod.confirm => Text(
               'Please confirm.',
-              style: text.titleMedium,
+              style: context.typo.title2,
             ),
             // ChatViewModel consumes notify requests without opening this
             // sheet. Keep the defensive enum branch empty; [message] above
@@ -498,12 +522,21 @@ class _ExtensionUiSheetState extends State<ExtensionUiSheet> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: _submitting ? null : _cancel,
-                    child: const Text('Cancel'),
+                    child: const Text('Dismiss'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(50),
+                      backgroundColor: colors.accent,
+                      foregroundColor: colors.onAccent,
+                      textStyle: context.typo.headline,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
                     onPressed: (_canSubmit && !_submitting) ? _submit : null,
                     child: _submitting
                         ? const SizedBox(
@@ -511,7 +544,7 @@ class _ExtensionUiSheetState extends State<ExtensionUiSheet> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('Submit'),
+                        : const Text('Send answer'),
                   ),
                 ),
               ],

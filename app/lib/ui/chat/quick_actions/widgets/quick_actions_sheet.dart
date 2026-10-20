@@ -1,10 +1,11 @@
 import 'dart:async';
 
-import 'package:app/config/dependencies.dart';
 import 'package:app/data/actions/actions_repository.dart' show ActionFailure;
 import 'package:app/protocol/protocol.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:app/routing/adaptive.dart';
 import 'package:app/ui/core/themes/themes.dart';
+import 'package:app/ui/chat/widgets/confirm_chat_action.dart';
 import 'package:app/ui/chat/quick_actions/states/quick_actions_state.dart';
 import 'package:app/ui/chat/quick_actions/viewmodels/quick_actions_viewmodel.dart';
 import 'package:app/ui/chat/quick_actions/widgets/dismiss_on_session_change.dart';
@@ -15,10 +16,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 /// Plan/28 Wave C — entry point for the Quick Actions sheet from the
-/// chat input bar. Provides a fresh [QuickActionsViewModel] scoped to
-/// this sheet (and any sub-sheets it pushes) and wires the SnackBar
-/// error stream from the chat scaffold's messenger so failures stay
-/// visible after the sheet is dismissed.
+/// navigation menu. Reuses the route-scoped [QuickActionsViewModel] so the
+/// context strip reflects pending changes and surfaces inline failures.
 ///
 /// Both the messenger and the `session_new` reset callback are captured
 /// from the *page* context here, before the sheet pushes its own route —
@@ -30,6 +29,7 @@ Future<void> showQuickActionsSheet(BuildContext context) {
   // Captured to auto-close the sheet if the tablet's selected session changes
   // out from under it (the sheet lives on the detail-pane navigator).
   final selection = context.read<SessionSelection>();
+  final actions = context.read<QuickActionsViewModel>();
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: context.colors.bg,
@@ -42,11 +42,12 @@ Future<void> showQuickActionsSheet(BuildContext context) {
     builder: (ctx) {
       return DismissOnSessionChange(
         selection: selection,
-        child: ChangeNotifierProvider<QuickActionsViewModel>(
-          create: (_) => injector.get<QuickActionsViewModel>(),
+        child: ChangeNotifierProvider<QuickActionsViewModel>.value(
+          value: actions,
           child: QuickActionsSheetBody(
             messenger: messenger,
             onSessionReset: chat.clearActiveSession,
+            inlineErrors: true,
           ),
         ),
       );
@@ -64,11 +65,13 @@ class QuickActionsSheetBody extends StatefulWidget {
   /// mirror. Optional so tests can omit it; in the app it is wired to
   /// [ChatViewModel.clearActiveSession].
   final Future<void> Function()? onSessionReset;
+  final bool inlineErrors;
 
   const QuickActionsSheetBody({
     super.key,
     required this.messenger,
     this.onSessionReset,
+    this.inlineErrors = false,
   });
 
   @override
@@ -85,7 +88,7 @@ class _QuickActionsSheetBodyState extends State<QuickActionsSheetBody> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final vm = context.read<QuickActionsViewModel>();
-      _errorSub = vm.errors.listen(_showError);
+      if (!widget.inlineErrors) _errorSub = vm.errors.listen(_showError);
     });
   }
 
@@ -103,9 +106,9 @@ class _QuickActionsSheetBodyState extends State<QuickActionsSheetBody> {
         behavior: SnackBarBehavior.floating,
         content: Text(
           message,
-          style: TextStyle(fontFamily: kMonoFamily, fontSize: 12, color: color),
+          style: widget.messenger.context.typo.footnote.copyWith(color: color),
         ),
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 4),
       ),
     );
   }
@@ -142,27 +145,28 @@ class _QuickActionsSheetBodyState extends State<QuickActionsSheetBody> {
               label: 'Compact context',
               subtitle: 'Summarize old turns to free room.',
               busy: busyAction == ActionName.sessionCompact,
-              onTap: () => _onCompact(vm),
+              onTap: busyAction != null ? null : () => _onCompact(vm),
             ),
             const _Divider(),
             _ActionTile(
               key: const Key('qa-new-session'),
               icon: LucideIcons.sparkles,
               label: 'New session',
-              subtitle: 'Clears the conversation on the Pi.',
+              subtitle: 'Starts a fresh conversation.',
               busy: busyAction == ActionName.sessionNew,
-              onTap: () => _onNewSession(vm),
+              onTap: busyAction != null ? null : () => _onNewSession(vm),
             ),
             const _Divider(),
             _ModelRow(
               currentLabel: vm.currentModel?.name ?? vm.currentModelName,
               busy: busyAction == ActionName.modelSet,
-              onTap: () => _openModelPicker(vm),
+              onTap: busyAction != null ? null : () => _openModelPicker(vm),
             ),
             const _Divider(),
             _ThinkingRow(
               current: vm.currentThinking,
               busy: busyAction == ActionName.thinkingSet,
+              disabled: busyAction != null,
               onPick: (level) => _onThinking(vm, level),
             ),
             const SizedBox(height: 18),
@@ -173,6 +177,8 @@ class _QuickActionsSheetBodyState extends State<QuickActionsSheetBody> {
   }
 
   Future<void> _onCompact(QuickActionsViewModel vm) async {
+    final confirm = await confirmChatAction(context, newSession: false);
+    if (!confirm || !mounted) return;
     try {
       await vm.compact();
     } catch (_) {
@@ -191,59 +197,13 @@ class _QuickActionsSheetBodyState extends State<QuickActionsSheetBody> {
     // capture the root navigator BEFORE popping (our own context dies with
     // the sheet) so the dialog is shown on the root, same as before. Toasts
     // use `widget.messenger`, which outlives the sheet.
+    final selection = context.read<SessionSelection?>();
     final rootNavigator = Navigator.of(context, rootNavigator: true);
     Navigator.of(context).pop();
-    final confirm = await showDialog<bool>(
-      context: rootNavigator.context,
-      // Pop via the dialog's OWN context (dCtx) — Cancel/Start close the
-      // dialog regardless of which navigator it sits on.
-      builder: (dCtx) {
-        final colors = dCtx.colors;
-        return AlertDialog(
-          backgroundColor: colors.bg,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(color: colors.border),
-          ),
-          title: Text(
-            'Start a new session?',
-            style: TextStyle(
-              fontFamily: kMonoFamily,
-              fontSize: 14,
-              color: colors.text,
-            ),
-          ),
-          content: Text(
-            'This clears the Pi-side conversation history. The current '
-            'thread cannot be resumed.',
-            style: TextStyle(
-              fontFamily: kMonoFamily,
-              fontSize: 12,
-              color: colors.muted,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dCtx).pop(false),
-              child: Text(
-                'Cancel',
-                style: TextStyle(fontFamily: kMonoFamily, color: colors.muted),
-              ),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: colors.accent,
-                foregroundColor: colors.onAccent,
-              ),
-              onPressed: () => Navigator.of(dCtx).pop(true),
-              child: const Text(
-                'Start new',
-                style: TextStyle(fontFamily: kMonoFamily),
-              ),
-            ),
-          ],
-        );
-      },
+    final confirm = await confirmChatAction(
+      rootNavigator.context,
+      newSession: true,
+      sessionSelection: selection,
     );
     if (confirm != true) return;
     try {
@@ -251,7 +211,7 @@ class _QuickActionsSheetBodyState extends State<QuickActionsSheetBody> {
     } on ActionFailure catch (e) {
       // The sheet is already closed, so its `vm.errors` listener is gone —
       // surface the failure toast directly through the captured messenger.
-      _showError(e.message);
+      if (!widget.inlineErrors) _showError(e.message);
       return;
     } catch (_) {
       return;
@@ -309,7 +269,6 @@ class _SheetTitle extends StatelessWidget {
         child: Text(
           text,
           style: TextStyle(
-            fontFamily: kMonoFamily,
             fontSize: 12,
             color: context.colors.muted,
             letterSpacing: 0.4,
@@ -332,7 +291,7 @@ class _ActionTile extends StatelessWidget {
   final String label;
   final String subtitle;
   final bool busy;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   const _ActionTile({
     super.key,
     required this.icon,
@@ -359,20 +318,12 @@ class _ActionTile extends StatelessWidget {
                 children: [
                   Text(
                     label,
-                    style: TextStyle(
-                      fontFamily: kMonoFamily,
-                      fontSize: 13,
-                      color: colors.text,
-                    ),
+                    style: TextStyle(fontSize: 13, color: colors.text),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
-                    style: TextStyle(
-                      fontFamily: kMonoFamily,
-                      fontSize: 11,
-                      color: colors.muted,
-                    ),
+                    style: TextStyle(fontSize: 11, color: colors.muted),
                   ),
                 ],
               ),
@@ -399,7 +350,7 @@ class _ModelRow extends StatelessWidget {
   /// generic placeholder. Reads cheap so the picker can lazy-load.
   final String? currentLabel;
   final bool busy;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   const _ModelRow({
     required this.currentLabel,
     required this.busy,
@@ -425,20 +376,12 @@ class _ModelRow extends StatelessWidget {
                 children: [
                   Text(
                     'Model',
-                    style: TextStyle(
-                      fontFamily: kMonoFamily,
-                      fontSize: 11,
-                      color: colors.muted,
-                    ),
+                    style: TextStyle(fontSize: 11, color: colors.muted),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     label,
-                    style: TextStyle(
-                      fontFamily: kMonoFamily,
-                      fontSize: 13,
-                      color: colors.text,
-                    ),
+                    style: TextStyle(fontSize: 13, color: colors.text),
                   ),
                 ],
               ),
@@ -464,10 +407,12 @@ class _ModelRow extends StatelessWidget {
 class _ThinkingRow extends StatelessWidget {
   final ThinkingLevel? current;
   final bool busy;
+  final bool disabled;
   final ValueChanged<ThinkingLevel> onPick;
   const _ThinkingRow({
     required this.current,
     required this.busy,
+    required this.disabled,
     required this.onPick,
   });
 
@@ -485,11 +430,7 @@ class _ThinkingRow extends StatelessWidget {
               const SizedBox(width: 14),
               Text(
                 'Thinking',
-                style: TextStyle(
-                  fontFamily: kMonoFamily,
-                  fontSize: 11,
-                  color: colors.muted,
-                ),
+                style: TextStyle(fontSize: 11, color: colors.muted),
               ),
               const Spacer(),
               if (busy)
@@ -504,18 +445,23 @@ class _ThinkingRow extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          _ThinkingSegmented(current: current, disabled: busy, onPick: onPick),
+          ThinkingSegmented(
+            current: current,
+            disabled: disabled,
+            onPick: onPick,
+          ),
         ],
       ),
     );
   }
 }
 
-class _ThinkingSegmented extends StatelessWidget {
+class ThinkingSegmented extends StatelessWidget {
   final ThinkingLevel? current;
   final bool disabled;
   final ValueChanged<ThinkingLevel> onPick;
-  const _ThinkingSegmented({
+  const ThinkingSegmented({
+    super.key,
     required this.current,
     required this.disabled,
     required this.onPick,
@@ -534,68 +480,25 @@ class _ThinkingSegmented extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: context.colors.border),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        children: [
-          for (final level in ThinkingLevel.values)
-            Expanded(
-              child: _SegButton(
+    return AbsorbPointer(
+      absorbing: disabled,
+      child: Opacity(
+        opacity: disabled ? .4 : 1,
+        child: CupertinoSlidingSegmentedControl<ThinkingLevel>(
+          groupValue: current,
+          backgroundColor: context.colors.surface2,
+          thumbColor: context.colors.surface,
+          children: {
+            for (final level in ThinkingLevel.values)
+              level: Padding(
                 key: Key('qa-thinking-${level.wire}'),
-                label: _labels[level]!,
-                selected: current == level,
-                disabled: disabled,
-                onTap: () => onPick(level),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                child: Text(_labels[level]!, style: context.typo.footnote),
               ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SegButton extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final bool disabled;
-  final VoidCallback onTap;
-  const _SegButton({
-    super.key,
-    required this.label,
-    required this.selected,
-    required this.disabled,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return GestureDetector(
-      onTap: disabled ? null : onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: selected
-              ? colors.accent.withValues(alpha: 0.15)
-              : Colors.transparent,
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontFamily: kMonoFamily,
-              fontSize: 11,
-              color: disabled
-                  ? colors.muted.withValues(alpha: 0.5)
-                  : selected
-                  ? colors.accent
-                  : colors.text,
-            ),
-          ),
+          },
+          onValueChanged: (value) {
+            if (value != null && !disabled) onPick(value);
+          },
         ),
       ),
     );

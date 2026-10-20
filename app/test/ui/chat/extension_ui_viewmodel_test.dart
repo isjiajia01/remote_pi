@@ -303,4 +303,64 @@ void main() {
     h.sync.dispose();
     h.conn.dispose();
   });
+  test(
+    'only accepted answers add a caption, duplicate completion is ignored and cancel adds none',
+    () async {
+      final h = await harness();
+      addTearDown(() {
+        h.vm.dispose();
+        h.sync.dispose();
+        h.conn.dispose();
+      });
+      h.ch.push(_request('answer-caption'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await h.vm.respondExtensionUi(
+        ExtensionUiResponse(id: 'answer-caption', value: 'Alpha'),
+      );
+      expect((h.vm.state as ChatReady).answeredQuestions, isEmpty);
+      h.ch.push(
+        const ExtensionUiRequest(
+          id: 'answer-caption',
+          method: ExtensionUiMethod.notify,
+          notifyType: 'warning',
+          message: 'Try again',
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect((h.vm.state as ChatReady).answeredQuestions, isEmpty);
+      await h.vm.respondExtensionUi(
+        ExtensionUiResponse(id: 'answer-caption', value: 'Beta'),
+      );
+      h.ch.push(
+        const ExtensionUiRequest(
+          id: 'answer-caption',
+          method: ExtensionUiMethod.notify,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect((h.vm.state as ChatReady).answeredQuestions, ['Beta']);
+      // Replayed completion after a reconnect cannot duplicate an answer.
+      h.ch.push(
+        const ExtensionUiRequest(
+          id: 'answer-caption',
+          method: ExtensionUiMethod.notify,
+        ),
+      );
+      h.ch.push(_request('cancel-caption'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await h.vm.respondExtensionUi(
+        ExtensionUiResponse(id: 'cancel-caption', cancelled: true),
+      );
+      h.ch.push(
+        const ExtensionUiRequest(
+          id: 'cancel-caption',
+          method: ExtensionUiMethod.notify,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect((h.vm.state as ChatReady).answeredQuestions, ['Beta']);
+      await h.vm.clearActiveSession();
+      expect((h.vm.state as ChatReady).answeredQuestions, isEmpty);
+    },
+  );
 }

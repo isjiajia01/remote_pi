@@ -174,10 +174,12 @@ enum ToolEventStatus { pending, allowed, denied, expired, completed, failed }
 class CompactionMsg extends ChatMessage {
   final String summary;
   final int? tokensBefore;
+  final DateTime? timestamp;
   const CompactionMsg({
     required super.id,
     required this.summary,
     this.tokensBefore,
+    this.timestamp,
   });
 
   @override
@@ -185,10 +187,11 @@ class CompactionMsg extends ChatMessage {
       other is CompactionMsg &&
       other.id == id &&
       other.summary == summary &&
-      other.tokensBefore == tokensBefore;
+      other.tokensBefore == tokensBefore &&
+      other.timestamp == timestamp;
 
   @override
-  int get hashCode => Object.hash(id, summary, tokensBefore);
+  int get hashCode => Object.hash(id, summary, tokensBefore, timestamp);
 }
 
 // ---------------------------------------------------------------------------

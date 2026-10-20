@@ -114,4 +114,36 @@ void main() {
     await tester.pump();
     expect(find.text('sending…'), findsOneWidget);
   });
+  testWidgets(
+    'failed user send exposes Retry and uses at most 80 percent of pane width',
+    (tester) async {
+      var retries = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              child: UserBubble(
+                const UserMsg(
+                  id: 'u',
+                  text: 'Failed text',
+                  status: UserMsgStatus.failed,
+                  steering: true,
+                ),
+                onRetry: () => retries++,
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Not sent'), findsOneWidget);
+      expect(find.text('steering…'), findsNothing);
+      expect(
+        tester.getSize(find.byType(SelectableText)).width,
+        lessThanOrEqualTo(240),
+      );
+      await tester.tap(find.text('Retry'));
+      expect(retries, 1);
+    },
+  );
 }

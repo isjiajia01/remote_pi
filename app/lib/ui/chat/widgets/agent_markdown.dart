@@ -26,21 +26,37 @@ class AgentMarkdown extends StatelessWidget {
     final typo = context.typo;
     final markdown = GptMarkdown(
       data,
-      style: typo.mono,
+      style: typo.chatBody,
       onLinkTap: (url, _) => _openLink(context, url),
       // Inline `code` — subtle highlight, keeps the baseline.
-      highlightBuilder: (context, text, style) => Text(
-        text,
-        style: typo.mono.copyWith(
-          color: colors.highlight,
-          backgroundColor: colors.codeBg,
+      highlightBuilder: (context, text, style) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        decoration: BoxDecoration(
+          color: colors.surface2,
+          borderRadius: BorderRadius.circular(6),
         ),
+        child: Text(text, style: typo.monoCode),
       ),
       // Fenced ``` blocks — dark card + copy button.
       codeBuilder: (context, name, code, closed) =>
           _CodeBlock(language: name, code: code),
     );
-    return selectable ? SelectionArea(child: markdown) : markdown;
+    final themed = GptMarkdownTheme(
+      gptThemeData: GptMarkdownThemeData(
+        brightness: Theme.of(context).brightness,
+        h1: typo.headline,
+        h2: typo.headline,
+        h3: typo.headline,
+        h4: typo.headline,
+        h5: typo.headline,
+        h6: typo.headline,
+        linkColor: colors.accent,
+        highlightColor: colors.surface2,
+        hrLineColor: colors.hairline,
+      ),
+      child: markdown,
+    );
+    return selectable ? SelectionArea(child: themed) : themed;
   }
 
   static Future<void> _openLink(BuildContext context, String url) async {
@@ -73,7 +89,7 @@ class _CodeBlock extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
         color: colors.codeBg,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: colors.border),
       ),
       child: Column(
@@ -103,7 +119,7 @@ class _CodeBlock extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
             child: Text(
               code,
-              style: typo.mono.copyWith(color: colors.text, height: 1.45),
+              style: typo.monoCode.copyWith(color: colors.text, height: 1.45),
             ),
           ),
         ],

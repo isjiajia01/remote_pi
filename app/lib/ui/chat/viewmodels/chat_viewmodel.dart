@@ -52,6 +52,8 @@ class ChatViewModel extends ViewModel<ChatState> {
   // / resolved). Surfaced to the modal so the user can retry instead of staring
   // at a closed/dismissed flow that's still blocked on desktop.
   String? _pendingUiError;
+  ExtensionUiResponse? _pendingUiResponse;
+  final Map<String, String> _answeredQuestions = {};
   RuntimeRecord _runtime = const RuntimeRecord();
   bool _pairingRevoked = false;
   String? _peerOfflineReason;
@@ -259,16 +261,23 @@ class ChatViewModel extends ViewModel<ChatState> {
         final isWarning =
             req.notifyType == 'warning' || req.notifyType == 'error';
         if (isWarning) {
+          _pendingUiResponse = null;
           _pendingUiError = (req.message?.isNotEmpty ?? false)
               ? req.message
               : 'Answer was not accepted.';
         } else {
+          final response = _pendingUiResponse;
+          if (response != null && !response.cancelled) {
+            _answeredQuestions[req.id] = _answerCaption(response);
+          }
+          _pendingUiResponse = null;
           _pendingUiRequest = null;
           _pendingUiError = null;
         }
       }
       // Unmatched notifies (stand-alone notices) are ignored in v1.
     } else {
+      if (_pendingUiRequest?.id != req.id) _pendingUiResponse = null;
       _pendingUiRequest = req;
       _pendingUiError = null;
     }
@@ -288,17 +297,22 @@ class ChatViewModel extends ViewModel<ChatState> {
     // full-screen spinner, so entering the chat doesn't flicker.
     if (_activePeer == null) {
       return _bootstrapping
-          ? const ChatReady(messages: [])
+          ? const ChatReady(messages: [], isConnecting: true)
           : const ChatNoPeer();
     }
     final isOnline = _runtime.connection == RuntimeConnection.online;
     final isOffline = !isOnline;
-    final peerPresence = _runtime.presence == RuntimePresence.alive
-        ? const PresenceOnline() as PresenceState
-        : const PresenceOffline(sinceTs: 0);
+    final peerPresence = switch (_runtime.presence) {
+      RuntimePresence.alive => const PresenceOnline(),
+      RuntimePresence.unknown => const PresenceUnknown(),
+      RuntimePresence.stale => const PresenceOffline(sinceTs: 0),
+    };
 
     return ChatReady(
       messages: _messages,
+      isConnecting:
+          _bootstrapping || _runtime.connection == RuntimeConnection.connecting,
+      answeredQuestions: List.unmodifiable(_answeredQuestions.values),
       streaming: _streaming,
       isOffline: isOffline,
       pairingRevoked: _pairingRevoked,
@@ -339,15 +353,33 @@ class ChatViewModel extends ViewModel<ChatState> {
   /// no point spinning 25s toward the sheet's backstop.
   Future<void> respondExtensionUi(ExtensionUiResponse resp) async {
     _pendingUiError = null;
+    _pendingUiResponse = resp;
     _recompute();
     final sent = await _sync.respondExtensionUi(resp);
     if (!sent) {
+      _pendingUiResponse = null;
       _pendingUiError = 'Not connected — check the link to Pi and retry.';
       _recompute();
     }
   }
 
+  String _answerCaption(ExtensionUiResponse response) {
+    final answers = response.ask?.answers;
+    if (answers != null) {
+      return answers.values
+          .map(
+            (a) => [
+              ...a.values,
+              if (a.customText != null) a.customText!,
+            ].join(', '),
+          )
+          .join(' · ');
+    }
+    return response.value ?? (response.confirmed == true ? 'Confirmed' : '');
+  }
+
   Future<void> clearActiveSession() async {
+    _answeredQuestions.clear();
     _messages = const [];
     _streaming = null;
     _working = false;

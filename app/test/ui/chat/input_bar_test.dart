@@ -30,95 +30,41 @@ void main() {
     );
   }
 
-  // Plan/28 — the quick-actions button is wrapped in a SizeTransition that
-  // animates it in/out. When "hidden" the widget STAYS MOUNTED and only
-  // collapses to zero width (it never leaves the tree), so `findsNothing` is
-  // the wrong assertion. Instead: still present, but collapsed to width 0
-  // (and therefore not tappable).
-  final quickActionsKey = find.byKey(const Key('input-bar-quick-actions'));
-
-  void expectCollapsed(WidgetTester tester) {
-    expect(
-      quickActionsKey,
-      findsOneWidget,
-      reason: 'stays mounted — SizeTransition collapses size, not the tree',
-    );
-    final sizeTransition = find.ancestor(
-      of: quickActionsKey,
-      matching: find.byType(SizeTransition),
-    );
-    expect(
-      tester.getSize(sizeTransition).width,
-      0,
-      reason: 'collapsed to zero width when hidden',
-    );
-  }
-
-  void expectExpanded(WidgetTester tester) {
-    expect(quickActionsKey, findsOneWidget);
-    final sizeTransition = find.ancestor(
-      of: quickActionsKey,
-      matching: find.byType(SizeTransition),
-    );
-    expect(
-      tester.getSize(sizeTransition).width,
-      greaterThan(0),
-      reason: 'fully expanded when visible',
-    );
-  }
-
-  testWidgets('quick actions button is visible when input is empty', (
-    tester,
-  ) async {
-    await pumpBar(
-      tester,
-      disabled: false,
-      streaming: false,
-      onOpenQuickActions: () {},
-    );
-    await tester.pumpAndSettle();
-    expectExpanded(tester);
+  test('composer maps all working/content combinations', () {
+    expect(composerMode(working: false, hasContent: false), ComposerMode.mic);
+    expect(composerMode(working: false, hasContent: true), ComposerMode.send);
+    expect(composerMode(working: true, hasContent: false), ComposerMode.stop);
+    expect(composerMode(working: true, hasContent: true), ComposerMode.steer);
   });
 
-  testWidgets('quick actions button hides (collapses) while typing', (
-    tester,
-  ) async {
+  testWidgets('quick actions moved out of the composer', (tester) async {
     await pumpBar(
       tester,
       disabled: false,
       streaming: false,
       onOpenQuickActions: () {},
     );
+    expect(find.byKey(const Key('input-bar-quick-actions')), findsNothing);
+    expect(find.byIcon(LucideIcons.mic600), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'hello');
-    // Let the SizeTransition finish collapsing (it animates out over 320ms).
-    await tester.pumpAndSettle();
-    expectCollapsed(tester);
+    await tester.pump();
+    expect(find.byIcon(LucideIcons.arrowUp), findsOneWidget);
   });
 
-  testWidgets('quick actions button hides (collapses) when disabled', (
-    tester,
-  ) async {
-    await pumpBar(
-      tester,
-      disabled: true,
-      streaming: false,
-      onOpenQuickActions: () {},
+  testWidgets('offline composer disables typing and send', (tester) async {
+    var sent = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InputBar(disabled: true, onSend: (_) => sent = true),
+        ),
+      ),
     );
-    await tester.pumpAndSettle();
-    expectCollapsed(tester);
-  });
-
-  testWidgets('quick actions button hides (collapses) while streaming', (
-    tester,
-  ) async {
-    await pumpBar(
-      tester,
-      disabled: false,
-      streaming: true,
-      onOpenQuickActions: () {},
-    );
-    await tester.pumpAndSettle();
-    expectCollapsed(tester);
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.enabled, isFalse);
+    expect(field.decoration?.hintText, 'Agent offline');
+    await tester.tap(find.byKey(const Key('input-bar-action')));
+    expect(sent, isFalse);
   });
 
   // Plan/43 — `streaming` (the whole working turn, fed by vm.isWorking) keeps
@@ -132,14 +78,14 @@ void main() {
       streaming: true,
       onOpenQuickActions: () {},
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
     final field = tester.widget<TextField>(find.byType(TextField));
     expect(field.enabled, isTrue);
     expect(field.decoration?.hintText, 'Steer current response…');
     // The composer action button uses the heavier `600` weight variants
     // (see _ComposerActionButton._icon) — match those, not the plain glyphs.
     expect(find.byIcon(LucideIcons.square600), findsOneWidget); // stop
-    expect(find.byIcon(LucideIcons.send600), findsNothing);
+    expect(find.byIcon(LucideIcons.arrowUp), findsNothing);
     expect(find.byIcon(LucideIcons.mic600), findsNothing);
   });
 
@@ -262,7 +208,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField), 'quick follow-up');
     await tester.pump();
-    expect(find.byIcon(LucideIcons.send600), findsOneWidget);
+    expect(find.byIcon(LucideIcons.cornerDownRight), findsOneWidget);
     expect(
       find.byKey(const Key('input-bar-inline-stop')),
       findsOneWidget,
@@ -271,30 +217,6 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
     expect(sent, 'quick follow-up');
-  });
-
-  testWidgets('tap fires onOpenQuickActions', (tester) async {
-    var tapped = 0;
-    await pumpBar(
-      tester,
-      disabled: false,
-      streaming: false,
-      onOpenQuickActions: () => tapped++,
-    );
-    await tester.tap(find.byKey(const Key('input-bar-quick-actions')));
-    await tester.pump();
-    expect(tapped, 1);
-  });
-
-  testWidgets('quick actions button stays collapsed when callback is null', (
-    tester,
-  ) async {
-    // The button is always mounted now (so it can animate in/out); with no
-    // handler `show` is false, so it collapses to zero width — hidden, but in
-    // the tree. Same "hidden" contract as the typing/disabled/streaming cases.
-    await pumpBar(tester, disabled: false, streaming: false);
-    await tester.pumpAndSettle();
-    expectCollapsed(tester);
   });
 
   // Hardware keyboard (iPad keyboard case): plain Enter SENDS, Shift+Enter

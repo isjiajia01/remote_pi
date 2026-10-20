@@ -1,3 +1,4 @@
+import 'package:app/ui/chat/quick_actions/viewmodels/quick_actions_viewmodel.dart';
 import 'dart:async';
 
 import 'package:app/config/dependencies.dart';
@@ -367,6 +368,7 @@ GoRouter buildRouter(
           return MultiProvider(
             providers: [
               ViewmodelProvider<ChatViewModel>(),
+              ViewmodelProvider<QuickActionsViewModel>(),
               ViewmodelProvider<VoiceInputViewModel>(),
               ViewmodelProvider<AttachmentViewModel>(),
             ],
@@ -407,6 +409,7 @@ class _DetailPane extends StatelessWidget {
       key: ValueKey('chat-${sel.current!.epk}-${sel.current!.roomId}'),
       providers: [
         ViewmodelProvider<ChatViewModel>(),
+        ViewmodelProvider<QuickActionsViewModel>(),
         ViewmodelProvider<VoiceInputViewModel>(),
         ViewmodelProvider<AttachmentViewModel>(),
       ],

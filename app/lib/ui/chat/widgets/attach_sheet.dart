@@ -63,7 +63,7 @@ class _AttachSheetBody extends StatelessWidget {
             _AttachOption(
               key: const Key('attach-gallery'),
               icon: LucideIcons.image,
-              label: 'Photo Library',
+              label: 'Photo library',
               onTap: () => Navigator.of(context).pop(AttachSource.gallery),
             ),
           ],
@@ -91,14 +91,7 @@ class _AttachOption extends StatelessWidget {
     return ListTile(
       onTap: onTap,
       leading: Icon(icon, color: colors.accent, size: 20),
-      title: Text(
-        label,
-        style: TextStyle(
-          fontFamily: kMonoFamily,
-          fontSize: 14,
-          color: colors.text,
-        ),
-      ),
+      title: Text(label, style: context.typo.body),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     );
   }

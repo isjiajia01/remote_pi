@@ -102,7 +102,7 @@ void main() {
     expect(find.byKey(const Key('recording-strip')), findsNothing);
     expect(find.text('hello from voice'), findsOneWidget);
     // Field now has text → action button is the send affordance.
-    expect(find.byIcon(LucideIcons.send600), findsOneWidget);
+    expect(find.byIcon(LucideIcons.arrowUp), findsOneWidget);
   });
 
   testWidgets('slide-to-cancel discards — field stays empty, mic returns', (

@@ -11,7 +11,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 class UserBubble extends StatelessWidget {
   final UserMsg message;
-  const UserBubble(this.message, {super.key});
+  final VoidCallback? onRetry;
+  const UserBubble(this.message, {super.key, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -27,83 +28,89 @@ class UserBubble extends StatelessWidget {
     final image = message.image;
     final colors = context.colors;
     final typo = context.typo;
-    return Align(
-      alignment: Alignment.centerRight,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 300),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Opacity(
-              opacity: isPending ? 0.6 : 1.0,
-              child: image != null
-                  ? ImageBubble(
-                      image: image,
-                      caption: message.text,
-                      isFailed: isFailed,
-                    )
-                  : Container(
-                      decoration: BoxDecoration(
-                        color: colors.userBubble,
-                        borderRadius: BorderRadius.circular(12),
-                        border: isFailed
-                            ? Border.all(color: colors.error, width: 1)
-                            : null,
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 13,
-                        vertical: 10,
-                      ),
-                      // Selectable so the user can copy their own message (the
-                      // agent reply is already selectable via AgentMarkdown).
-                      child: SelectableText(
-                        message.text,
-                        style: typo.sansBody.copyWith(color: colors.text),
-                      ),
-                    ),
-            ),
-            if (isPending || isSteering || isFailed)
-              Padding(
-                padding: const EdgeInsets.only(top: 4, right: 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (isPending || isSteering) ...[
-                      SizedBox(
-                        width: 10,
-                        height: 10,
-                        child: CircularProgressIndicator(
-                          color: colors.muted,
-                          strokeWidth: 1.2,
+    return LayoutBuilder(
+      builder: (context, constraints) => Align(
+        alignment: Alignment.centerRight,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: constraints.maxWidth * .8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Opacity(
+                opacity: isPending ? 0.6 : 1.0,
+                child: image != null
+                    ? ImageBubble(
+                        image: image,
+                        caption: message.text,
+                        isFailed: isFailed,
+                      )
+                    : Container(
+                        decoration: BoxDecoration(
+                          color: colors.userBubble,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(14),
+                            topRight: Radius.circular(14),
+                            bottomLeft: Radius.circular(14),
+                            bottomRight: Radius.circular(6),
+                          ),
+                          border: isFailed
+                              ? Border.all(color: colors.error, width: 1)
+                              : null,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 13,
+                          vertical: 10,
+                        ),
+                        // Selectable so the user can copy their own message (the
+                        // agent reply is already selectable via AgentMarkdown).
+                        child: SelectableText(
+                          message.text,
+                          style: typo.chatBody.copyWith(color: colors.text),
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        isSteering ? 'steering…' : 'sending…',
-                        style: typo.sansBody.copyWith(
-                          color: colors.muted,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ] else ...[
-                      Icon(
-                        LucideIcons.circleAlert,
-                        size: 12,
-                        color: colors.error,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'not delivered',
-                        style: typo.sansBody.copyWith(
-                          color: colors.error,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
               ),
-          ],
+              if (isPending || isSteering || isFailed)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, right: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!isFailed && (isPending || isSteering)) ...[
+                        SizedBox(
+                          width: 10,
+                          height: 10,
+                          child: CircularProgressIndicator(
+                            color: colors.muted,
+                            strokeWidth: 1.2,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isSteering ? 'steering…' : 'sending…',
+                          style: typo.caption.copyWith(color: colors.ink2),
+                        ),
+                      ] else ...[
+                        Icon(
+                          LucideIcons.circleAlert,
+                          size: 12,
+                          color: colors.error,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Not sent',
+                          style: typo.caption.copyWith(color: colors.error),
+                        ),
+                        if (onRetry != null)
+                          TextButton(
+                            onPressed: onRetry,
+                            child: const Text('Retry'),
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -123,64 +130,49 @@ class CompactionBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = message.tokensBefore;
-    final summary = message.summary;
     final colors = context.colors;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: colors.border),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(LucideIcons.check, size: 13, color: colors.success),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Context compacted',
-                      style: TextStyle(
-                        fontFamily: kMonoFamily,
-                        fontSize: 12,
-                        color: colors.text,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  if (tokens != null)
-                    Text(
-                      '~$tokens tokens',
-                      style: TextStyle(
-                        fontFamily: kMonoFamily,
-                        fontSize: 11,
-                        color: colors.muted,
-                      ),
-                    ),
-                ],
+    final time = message.timestamp?.toLocal();
+    final label = time == null
+        ? 'Context compacted'
+        : 'Context compacted · ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(child: Divider(color: colors.hairline)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                label,
+                style: context.typo.caption.copyWith(color: colors.ink2),
               ),
-              if (summary.isNotEmpty) ...[
-                const SizedBox(height: 6),
+            ),
+            Expanded(child: Divider(color: colors.hairline)),
+          ],
+        ),
+        // Retain the recap and token details without making the marker a turn.
+        if (message.summary.isNotEmpty || message.tokensBefore != null)
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            dense: true,
+            title: Text(
+              'Details',
+              style: context.typo.caption.copyWith(color: colors.ink2),
+            ),
+            children: [
+              if (message.tokensBefore != null)
                 Text(
-                  summary,
-                  style: TextStyle(
-                    fontFamily: kMonoFamily,
-                    fontSize: 12,
-                    color: colors.muted2,
-                  ),
+                  '~${message.tokensBefore} tokens',
+                  style: context.typo.caption.copyWith(color: colors.ink2),
                 ),
-              ],
+              if (message.summary.isNotEmpty)
+                Text(
+                  message.summary,
+                  style: context.typo.footnote.copyWith(color: colors.ink2),
+                ),
             ],
           ),
-        ),
-      ),
+      ],
     );
   }
 }

@@ -15,9 +15,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 // InputBar — bottom message composer.
 // - Disabled (grayed) when offline.
 // - During streaming, empty composer shows Stop; typed text sends steering.
-// - Plan/28 — quick actions (⚙) icon sits to the left of the attach
-//   button and is visible only while the field is empty (so it never
-//   competes with the send affordance).
+// - Quick actions live in the navigation menu and context strip.
 // - Plan/29 — when [voice] is provided, the mic becomes hold-to-talk:
 //   long-press starts recording (a WhatsApp-style RecordingStrip replaces
 //   the row), slide left past the threshold cancels, release transcribes
@@ -37,6 +35,8 @@ enum VoiceHint {
 class InputBar extends StatefulWidget {
   final bool disabled; // offline or no peer
   final bool streaming; // show cancel instead of send
+  final String agentName;
+  final String? disabledPlaceholder;
   final void Function(String text) onSend;
   final VoidCallback? onCancel;
   final VoidCallback? onOpenQuickActions;
@@ -78,6 +78,8 @@ class InputBar extends StatefulWidget {
     this.onOpenAttach,
     this.disabled = false,
     this.streaming = false,
+    this.agentName = 'agent',
+    this.disabledPlaceholder,
   });
 
   @override
@@ -148,6 +150,7 @@ class _InputBarState extends State<InputBar> {
   }
 
   void _submit() {
+    if (widget.disabled) return;
     final text = _controller.text.trim();
     // Plan/30 — an attached image makes an empty-caption send valid.
     final hasImage = widget.attachment?.hasImage ?? false;
@@ -175,13 +178,6 @@ class _InputBarState extends State<InputBar> {
         event.logicalKey == LogicalKeyboardKey.enter ||
         event.logicalKey == LogicalKeyboardKey.numpadEnter;
     if (!isEnter) return KeyEventResult.ignored;
-    // TEMP diag (input multiline Enter): if this line never prints when you
-    // press Enter on the emulator, Android is routing it through the IME and
-    // NOT as a hardware key event — remove once the behaviour is confirmed.
-    debugPrint(
-      '[input.enter] shift=${HardwareKeyboard.instance.isShiftPressed} '
-      'disabled=${widget.disabled} streaming=${widget.streaming}',
-    );
     // Don't intercept while disabled, or mid-IME-composition (a CJK
     // candidate is confirmed with Enter, not sent) — let the field/IME deal.
     if (widget.disabled || !_controller.value.composing.isCollapsed) {
@@ -291,7 +287,6 @@ class _InputBarState extends State<InputBar> {
     final voiceState = widget.voice?.state;
     final attachState = widget.attachment?.state;
     final canInteract = !widget.disabled;
-    final hasQuickActions = widget.onOpenQuickActions != null;
     final recording = voiceState is VoiceRecording;
     final transcribing = voiceState is VoiceTranscribing;
     final showStrip = recording || transcribing;
@@ -311,14 +306,6 @@ class _InputBarState extends State<InputBar> {
         !visionBlocked &&
         !hasImage;
 
-    final showQuickActions =
-        _empty &&
-        !hasImage &&
-        canInteract &&
-        !widget.streaming &&
-        !showStrip &&
-        hasQuickActions;
-
     // During a working turn with typed content, the main action sends steering;
     // keep a compact Stop affordance beside it so cancellation remains reachable.
     final showInlineStop =
@@ -328,158 +315,177 @@ class _InputBarState extends State<InputBar> {
         !showStrip &&
         widget.onCancel != null;
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 22),
-      decoration: BoxDecoration(
-        color: colors.bg,
-        border: Border(top: BorderSide(color: colors.border)),
-      ),
-      child: Stack(
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (hasImage)
-                _AttachmentPreview(
-                  image: attachState.image,
-                  onRemove: widget.attachment!.removeImage,
-                ),
-              for (final item in widget.queuedMessages)
-                _QueuedMessagePreview(
-                  text: item.text,
-                  editable: item.editable,
-                  onTap: item.editable ? () => _editQueued(item) : null,
-                  onClear: item.editable
-                      ? () => widget.onClearQueued?.call(item.id)
-                      : null,
-                ),
-              Row(
-                children: [
-                  _QuickActionsButton(
-                    show: showQuickActions,
-                    onPressed: widget.onOpenQuickActions,
+    return Opacity(
+      opacity: widget.disabled ? .4 : 1,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          border: Border(top: BorderSide(color: colors.border)),
+        ),
+        child: Stack(
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (hasImage)
+                  _AttachmentPreview(
+                    image: attachState.image,
+                    onRemove: widget.disabled
+                        ? null
+                        : widget.attachment!.removeImage,
                   ),
-                  _AttachButton(
-                    enabled: attachEnabled,
-                    onTap: widget.onOpenAttach,
+                if (widget.streaming) ...[
+                  SizedBox(
+                    height: 2,
+                    child: LinearProgressIndicator(
+                      key: const Key('composer-working-line'),
+                      value: MediaQuery.disableAnimationsOf(context) ? 1 : null,
+                      color: colors.working,
+                      backgroundColor: colors.surface,
+                    ),
                   ),
-                  const SizedBox(width: 10),
-                  // Text field (doubles as the image caption when one is set).
-                  Expanded(
-                    child: TextField(
-                      // Intercept hardware Enter on the field's OWN focus
-                      // node (the primary/leaf): plain Enter sends,
-                      // Shift+Enter newlines — see _onComposerKey. Must be
-                      // the leaf, not an ancestor Focus, or the multiline
-                      // newline handling consumes Enter first.
-                      focusNode: _focusNode,
-                      controller: _controller,
-                      enabled: canInteract,
-                      // Grow with the content: starts at one line, expands up
-                      // to 6 then scrolls internally. On a touch soft-keyboard
-                      // Enter inserts a newline; sending is via the composer
-                      // button (hardware Enter sends — see _onComposerKey).
-                      minLines: 1,
-                      maxLines: 6,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.newline,
-                      style: TextStyle(
-                        fontFamily: kMonoFamily,
-                        fontSize: 13,
-                        color: colors.text,
-                      ),
-                      cursorColor: colors.accent,
-                      decoration: InputDecoration(
-                        hintText: widget.disabled
-                            ? 'Offline…'
-                            : widget.streaming
-                            ? 'Steer current response…'
-                            : hasImage
-                            ? 'Add a caption…'
-                            : 'Send a message…',
-                        hintStyle: TextStyle(
-                          color: colors.muted,
-                          fontFamily: kMonoFamily,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        filled: true,
-                        fillColor: colors.inputFill,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(19),
-                          borderSide: BorderSide(color: colors.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(19),
-                          borderSide: BorderSide(color: colors.border),
-                        ),
-                        disabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(19),
-                          borderSide: BorderSide(
-                            color: colors.border.withValues(alpha: 0.5),
+                  const SizedBox(height: 8),
+                ],
+                if (widget.queuedMessages.length > 1)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '${widget.queuedMessages.length} queued',
+                      style: context.typo.caption.copyWith(color: colors.ink2),
+                    ),
+                  ),
+                for (final item in widget.queuedMessages)
+                  _QueuedMessagePreview(
+                    text: item.text,
+                    editable: item.editable,
+                    onTap: item.editable && canInteract
+                        ? () => _editQueued(item)
+                        : null,
+                    onClear: item.editable && canInteract
+                        ? () => widget.onClearQueued?.call(item.id)
+                        : null,
+                  ),
+                Row(
+                  children: [
+                    _AttachButton(
+                      enabled: attachEnabled,
+                      onTap: widget.onOpenAttach,
+                    ),
+                    const SizedBox(width: 10),
+                    // Text field (doubles as the image caption when one is set).
+                    Expanded(
+                      child: TextField(
+                        // Intercept hardware Enter on the field's OWN focus
+                        // node (the primary/leaf): plain Enter sends,
+                        // Shift+Enter newlines — see _onComposerKey. Must be
+                        // the leaf, not an ancestor Focus, or the multiline
+                        // newline handling consumes Enter first.
+                        focusNode: _focusNode,
+                        controller: _controller,
+                        enabled: canInteract,
+                        // Grow with the content: starts at one line, expands up
+                        // to 6 then scrolls internally. On a touch soft-keyboard
+                        // Enter inserts a newline; sending is via the composer
+                        // button (hardware Enter sends — see _onComposerKey).
+                        minLines: 1,
+                        maxLines: 6,
+                        keyboardType: TextInputType.multiline,
+                        textInputAction: TextInputAction.newline,
+                        style: context.typo.chatBody,
+                        cursorColor: colors.accent,
+                        decoration: InputDecoration(
+                          hintText: widget.disabled
+                              ? (widget.disabledPlaceholder ?? 'Agent offline')
+                              : widget.streaming
+                              ? 'Steer current response…'
+                              : hasImage
+                              ? 'Add a caption…'
+                              : 'Message ${widget.agentName}',
+                          hintStyle: context.typo.chatBody.copyWith(
+                            color: colors.ink2,
                           ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(19),
-                          borderSide: BorderSide(
-                            color: colors.accent,
-                            width: 1.2,
+                          constraints: const BoxConstraints(minHeight: 44),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          filled: true,
+                          fillColor: colors.inputFill,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide(color: colors.border),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide(color: colors.border),
+                          ),
+                          disabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide(
+                              color: colors.border.withValues(alpha: 0.5),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide(
+                              color: colors.accent,
+                              width: 1.2,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  _ComposerActionButton(
-                    streaming: widget.streaming,
-                    hasContent: hasContent,
-                    disabled: widget.disabled,
-                    onSendText: _submit,
-                    onCancel: widget.onCancel,
-                    onStartAudio: widget.onStartAudio,
-                    voiceEnabled: widget.voice != null,
-                    voiceUnsupported: voiceUnsupported,
-                    onVoiceLongPressStart: _onVoiceStart,
-                    onVoiceLongPressMoveUpdate: _onVoiceMove,
-                    onVoiceLongPressEnd: _onVoiceEnd,
-                    onVoiceTap: _onVoiceTap,
-                  ),
-                  if (showInlineStop) ...[
-                    const SizedBox(width: 8),
-                    _InlineStopButton(onTap: widget.onCancel!),
+                    const SizedBox(width: 10),
+                    _ComposerActionButton(
+                      streaming: widget.streaming,
+                      hasContent: hasContent,
+                      disabled: widget.disabled,
+                      onSendText: _submit,
+                      onCancel: widget.onCancel,
+                      onStartAudio: widget.onStartAudio,
+                      voiceEnabled: widget.voice != null,
+                      voiceUnsupported: voiceUnsupported,
+                      onVoiceLongPressStart: _onVoiceStart,
+                      onVoiceLongPressMoveUpdate: _onVoiceMove,
+                      onVoiceLongPressEnd: _onVoiceEnd,
+                      onVoiceTap: _onVoiceTap,
+                    ),
+                    if (showInlineStop) ...[
+                      const SizedBox(width: 8),
+                      _InlineStopButton(onTap: widget.onCancel!),
+                    ],
                   ],
-                ],
-              ),
-            ],
-          ),
-          // Recording strip — overlays the row (decision #11) while the mic's
-          // GestureDetector stays mounted underneath so the same long-press
-          // keeps feeding move/end events across the swap. IgnorePointer so
-          // the overlay never steals the in-flight gesture.
-          if (showStrip)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: ColoredBox(
-                  color: colors.bg,
-                  child: Center(
-                    child: recording
-                        ? RecordingStrip(
-                            level: voiceState.level,
-                            elapsed: voiceState.elapsed,
-                            maxDuration:
-                                widget.voice?.maxDuration ??
-                                const Duration(seconds: 60),
-                            cancelArmed: _cancelArmed,
-                          )
-                        : const _TranscribingStrip(),
+                ),
+              ],
+            ),
+            // Recording strip — overlays the row (decision #11) while the mic's
+            // GestureDetector stays mounted underneath so the same long-press
+            // keeps feeding move/end events across the swap. IgnorePointer so
+            // the overlay never steals the in-flight gesture.
+            if (showStrip)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ColoredBox(
+                    color: colors.bg,
+                    child: Center(
+                      child: recording
+                          ? RecordingStrip(
+                              level: voiceState.level,
+                              elapsed: voiceState.elapsed,
+                              maxDuration:
+                                  widget.voice?.maxDuration ??
+                                  const Duration(seconds: 60),
+                              cancelArmed: _cancelArmed,
+                            )
+                          : const _TranscribingStrip(),
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -505,78 +511,48 @@ class _QueuedMessagePreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     return Padding(
-      padding: const EdgeInsets.only(left: 4, right: 4, bottom: 10),
+      padding: const EdgeInsets.only(bottom: 4),
       child: Material(
-        color: Colors.transparent,
+        color: colors.surface2,
+        borderRadius: BorderRadius.circular(10),
         child: InkWell(
           key: const Key('input-bar-queued-preview'),
           onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
-            decoration: BoxDecoration(
-              color: colors.accent.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: colors.accent.withValues(alpha: 0.35)),
-            ),
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(
+            height: 40,
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Icon(
-                    LucideIcons.messageCircle,
-                    size: 15,
-                    color: colors.accent,
-                  ),
-                ),
+                const SizedBox(width: 12),
+                Icon(LucideIcons.clock, size: 16, color: colors.ink2),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        editable ? 'Queued. Tap to edit.' : 'Queued follow-up.',
-                        style: TextStyle(
-                          color: colors.accent,
-                          fontFamily: kMonoFamily,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
                         text,
-                        maxLines: 3,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: colors.text,
-                          fontFamily: kMonoFamily,
-                          fontSize: 12,
-                          height: 1.25,
+                        style: context.typo.subhead,
+                      ),
+                      Text(
+                        editable ? 'Queued · tap to edit' : 'Queued follow-up',
+                        style: context.typo.caption.copyWith(
+                          color: colors.ink2,
                         ),
                       ),
                     ],
                   ),
                 ),
-                if (onClear != null) ...[
-                  const SizedBox(width: 6),
-                  SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: IconButton(
-                      key: const Key('input-bar-clear-queued'),
-                      tooltip: 'Clear queued message',
-                      padding: EdgeInsets.zero,
-                      iconSize: 16,
-                      splashRadius: 16,
-                      onPressed: onClear,
-                      icon: Icon(LucideIcons.x, color: colors.muted2),
-                    ),
+                if (onClear != null)
+                  IconButton(
+                    key: const Key('input-bar-clear-queued'),
+                    tooltip: 'Clear queued message',
+                    onPressed: onClear,
+                    icon: Icon(LucideIcons.x, size: 16, color: colors.ink2),
                   ),
-                ],
               ],
             ),
           ),
@@ -598,15 +574,19 @@ class _InlineStopButton extends StatelessWidget {
     return GestureDetector(
       key: const Key('input-bar-inline-stop'),
       onTap: onTap,
-      child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: colors.error.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(19),
-          border: Border.all(color: colors.error.withValues(alpha: 0.55)),
+      child: SizedBox.square(
+        dimension: 44,
+        child: Center(
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: colors.ink,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(LucideIcons.square600, color: colors.bg, size: 14),
+          ),
         ),
-        child: Icon(LucideIcons.square600, color: colors.error, size: 18),
       ),
     );
   }
@@ -624,8 +604,8 @@ class _AttachButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 32,
-      height: 32,
+      width: 44,
+      height: 44,
       child: IconButton(
         key: const Key('input-bar-attach'),
         padding: EdgeInsets.zero,
@@ -633,7 +613,7 @@ class _AttachButton extends StatelessWidget {
         splashRadius: 18,
         tooltip: 'Attach image',
         icon: Icon(
-          LucideIcons.paperclip,
+          LucideIcons.plus,
           color: enabled
               ? context.colors.muted2
               : context.colors.muted.withValues(alpha: 0.35),
@@ -650,7 +630,7 @@ class _AttachmentPreview extends StatelessWidget {
   const _AttachmentPreview({required this.image, required this.onRemove});
 
   final PickedImage image;
-  final VoidCallback onRemove;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -658,8 +638,8 @@ class _AttachmentPreview extends StatelessWidget {
       key: const Key('attach-preview'),
       padding: const EdgeInsets.only(left: 4, bottom: 10),
       child: SizedBox(
-        width: 84,
-        height: 84,
+        width: 64,
+        height: 64,
         child: Stack(
           clipBehavior: Clip.none,
           children: [
@@ -667,8 +647,8 @@ class _AttachmentPreview extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               child: Image.memory(
                 image.bytes,
-                width: 72,
-                height: 72,
+                width: 56,
+                height: 56,
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
               ),
@@ -722,110 +702,20 @@ class _TranscribingStrip extends StatelessWidget {
         const SizedBox(width: 10),
         Text(
           'transcribing…',
-          style: TextStyle(
-            fontFamily: kMonoFamily,
-            fontSize: 12,
-            color: colors.muted2,
-          ),
+          style: context.typo.footnote.copyWith(color: colors.ink2),
         ),
       ],
     );
   }
 }
 
-class _QuickActionsButton extends StatefulWidget {
-  const _QuickActionsButton({required this.show, required this.onPressed});
+/// The trailing action is determined by whole-turn working state and content.
+enum ComposerMode { mic, send, stop, steer }
 
-  final bool show;
-  final VoidCallback? onPressed;
-
-  @override
-  State<_QuickActionsButton> createState() => _QuickActionsButtonState();
-}
-
-class _QuickActionsButtonState extends State<_QuickActionsButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _sizeFactor;
-  late final Animation<double> _fade;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 320),
-      value: widget.show ? 1.0 : 0.0,
-    );
-    // Timeline (forward = appear): first grow [0.0–0.5], then fade in [0.5–1.0].
-    // On reverse (disappear) the order flips → fade out first, then shrink.
-    _sizeFactor = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.0, 0.5, curve: Curves.easeInOut),
-    );
-    _fade = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.5, 1.0, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void didUpdateWidget(covariant _QuickActionsButton old) {
-    super.didUpdateWidget(old);
-    if (widget.show == old.show) return;
-    if (widget.show) {
-      _controller.forward();
-    } else {
-      _controller.reverse();
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizeTransition(
-      sizeFactor: _sizeFactor,
-      axis: Axis.horizontal,
-      // -1.0 = start (centerLeft) — `alignment:` only exists on Flutter
-      // ≥3.44 and breaks the 3.41 CI toolchain; drop the ignore once CI
-      // moves to ≥3.44.
-      // ignore: deprecated_member_use
-      axisAlignment: -1.0,
-      child: FadeTransition(
-        opacity: _fade,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 32,
-              height: 32,
-              child: IconButton(
-                key: const Key('input-bar-quick-actions'),
-                padding: EdgeInsets.zero,
-                iconSize: 18,
-                splashRadius: 18,
-                tooltip: 'Quick actions',
-                icon: Icon(
-                  LucideIcons.slidersHorizontal,
-                  color: context.colors.muted,
-                ),
-                onPressed: widget.onPressed,
-              ),
-            ),
-            const SizedBox(width: 6),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-enum _ComposerMode { sendAudio, sendText, cancel }
+ComposerMode composerMode({required bool working, required bool hasContent}) =>
+    working
+    ? (hasContent ? ComposerMode.steer : ComposerMode.stop)
+    : (hasContent ? ComposerMode.send : ComposerMode.mic);
 
 class _ComposerActionButton extends StatelessWidget {
   const _ComposerActionButton({
@@ -860,45 +750,36 @@ class _ComposerActionButton extends StatelessWidget {
   final VoidCallback onVoiceLongPressEnd;
   final VoidCallback onVoiceTap;
 
-  _ComposerMode get _mode {
-    if (streaming && !hasContent) return _ComposerMode.cancel;
-    if (hasContent) return _ComposerMode.sendText;
-    return _ComposerMode.sendAudio;
-  }
+  ComposerMode get _mode =>
+      composerMode(working: streaming, hasContent: hasContent);
 
-  IconData get _icon {
-    switch (_mode) {
-      case _ComposerMode.cancel:
-        return LucideIcons.square600;
-      case _ComposerMode.sendText:
-        return LucideIcons.send600;
-      case _ComposerMode.sendAudio:
-        return LucideIcons.mic600;
-    }
-  }
+  IconData get _icon => switch (_mode) {
+    ComposerMode.stop => LucideIcons.square600,
+    ComposerMode.send => LucideIcons.arrowUp,
+    ComposerMode.steer => LucideIcons.cornerDownRight,
+    ComposerMode.mic => LucideIcons.mic600,
+  };
 
   VoidCallback? _resolveTap() {
-    switch (_mode) {
-      case _ComposerMode.cancel:
-        return onCancel;
-      case _ComposerMode.sendText:
-        return disabled ? null : onSendText;
-      case _ComposerMode.sendAudio:
-        return disabled ? null : onStartAudio;
-    }
+    if (disabled) return null;
+    return switch (_mode) {
+      ComposerMode.stop => onCancel,
+      ComposerMode.send || ComposerMode.steer => onSendText,
+      ComposerMode.mic => onStartAudio,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     // Decision #9 edge — no on-device recognition anywhere: hide the mic so
     // the empty field shows just the attach placeholder (dictate via keyboard).
-    if (_mode == _ComposerMode.sendAudio && voiceUnsupported) {
+    if (_mode == ComposerMode.mic && voiceUnsupported) {
       return const SizedBox.shrink();
     }
 
     // Hold-to-talk mic (decision #4): long-press records, slide cancels,
     // release transcribes. A plain tap surfaces the "hold to talk" hint.
-    if (_mode == _ComposerMode.sendAudio && voiceEnabled) {
+    if (_mode == ComposerMode.mic && voiceEnabled) {
       return GestureDetector(
         onTap: disabled ? null : onVoiceTap,
         onLongPressStart: disabled ? null : (_) => onVoiceLongPressStart(),
@@ -917,36 +798,42 @@ class _ComposerActionButton extends StatelessWidget {
 
   Widget _button(BuildContext context) {
     final colors = context.colors;
-    final visualEnabled = !disabled;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      width: 38,
-      height: 38,
-      decoration: BoxDecoration(
-        color: visualEnabled
-            ? colors.accent
-            : colors.muted.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(19),
-        boxShadow: visualEnabled
-            ? [
-                BoxShadow(
-                  color: colors.accent.withValues(alpha: 0.33),
-                  blurRadius: 16,
-                ),
-              ]
-            : null,
-      ),
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 180),
-        transitionBuilder: (child, anim) => FadeTransition(
-          opacity: anim,
-          child: ScaleTransition(scale: anim, child: child),
-        ),
-        child: Icon(
-          _icon,
-          key: ValueKey(_mode),
-          color: visualEnabled ? colors.onAccent : colors.muted,
-          size: 20,
+    final fill = switch (_mode) {
+      ComposerMode.stop => colors.ink,
+      ComposerMode.steer => colors.working,
+      ComposerMode.send => colors.accent,
+      ComposerMode.mic => colors.surface2,
+    };
+    final foreground = switch (_mode) {
+      ComposerMode.stop => colors.bg,
+      ComposerMode.mic => colors.ink2,
+      ComposerMode.send || ComposerMode.steer => colors.onAccent,
+    };
+    final label = switch (_mode) {
+      ComposerMode.mic => 'Hold to talk',
+      ComposerMode.send => 'Send',
+      ComposerMode.stop => 'Stop',
+      ComposerMode.steer => 'Steer',
+    };
+    return Semantics(
+      button: true,
+      enabled: !disabled,
+      label: label,
+      child: SizedBox.square(
+        dimension: 44,
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
+            child: Icon(
+              _icon,
+              key: ValueKey(_mode),
+              color: foreground,
+              size: 20,
+            ),
+          ),
         ),
       ),
     );

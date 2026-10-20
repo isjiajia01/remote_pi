@@ -21,6 +21,7 @@ import 'package:app/routing/adaptive.dart';
 import 'package:app/ui/chat/attachment/viewmodels/attachment_viewmodel.dart';
 import 'package:app/ui/chat/chat_page.dart';
 import 'package:app/ui/chat/viewmodels/chat_viewmodel.dart';
+import 'package:app/ui/chat/states/chat_state.dart';
 import 'package:app/ui/chat/voice/viewmodels/voice_input_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -128,13 +129,27 @@ void main() {
       // we know the subtitle isn't just echoing the title fallback.
       expect(find.text('My Project'), findsOneWidget);
 
-      // The info button renders immediately — even with no PeerRecord loaded
+      // The menu renders immediately — even with no PeerRecord loaded
       // (activePeer == null here) — so it never pops in and shifts the AppBar.
-      expect(find.byIcon(LucideIcons.info), findsOneWidget);
+      expect(find.byIcon(LucideIcons.ellipsis), findsOneWidget);
 
       // Status dot uses initialOnline before the runtime resolves → shows
       // "online" immediately instead of flashing offline/reconnecting.
-      expect(find.text('online'), findsOneWidget);
+      expect(find.text('Online · '), findsOneWidget);
+
+      // Revocation hides the composer while keeping cached history readable.
+      vm.emit(const ChatReady(messages: [], pairingRevoked: true));
+      await tester.pump();
+      expect(
+        find.text('This phone was removed from MacBook de Jacob'),
+        findsOneWidget,
+      );
+      expect(find.byType(TextField), findsNothing);
+      vm.emit(const ChatFatalError('Session unavailable.'));
+      await tester.pump();
+      expect(find.text("Can't open this session"), findsOneWidget);
+      expect(find.text('Back to agents'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
 
       // Unmount + dispose in-body (the framework's pending-timer check runs
       // before addTearDown; conn's watchdog must be cancelled here).

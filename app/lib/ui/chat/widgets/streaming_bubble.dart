@@ -24,7 +24,18 @@ class _StreamingBubbleState extends State<StreamingBubble>
     _blink = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
-    )..repeat();
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _blink.stop();
+      _blink.value = 0;
+    } else if (!_blink.isAnimating) {
+      _blink.repeat();
+    }
   }
 
   @override
@@ -62,13 +73,16 @@ class _BlinkingCursor extends AnimatedWidget {
   @override
   Widget build(BuildContext context) {
     final controller = listenable as AnimationController;
-    final visible = controller.value < 0.5;
+    final visible =
+        MediaQuery.disableAnimationsOf(context) || controller.value < 0.5;
     return Container(
       key: const Key('streaming-cursor'),
       width: 7,
       height: 14,
       margin: const EdgeInsets.only(left: 3, bottom: 1),
-      color: visible ? context.colors.accent : Colors.transparent,
+      color: visible
+          ? context.colors.working
+          : context.colors.working.withValues(alpha: 0),
     );
   }
 }

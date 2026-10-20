@@ -61,7 +61,7 @@ void main() {
     );
   }
 
-  Finder submitButton() => find.widgetWithText(FilledButton, 'Submit');
+  Finder submitButton() => find.widgetWithText(FilledButton, 'Send answer');
 
   bool submitEnabled(WidgetTester tester) =>
       tester.widget<FilledButton>(submitButton()).onPressed != null;

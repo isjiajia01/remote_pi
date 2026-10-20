@@ -1,3 +1,6 @@
+import 'package:app/routing/adaptive.dart';
+import 'package:app/ui/chat/quick_actions/widgets/dismiss_on_session_change.dart';
+import 'package:app/ui/chat/quick_actions/states/quick_actions_state.dart';
 import 'package:app/data/actions/actions_repository.dart';
 import 'package:app/protocol/protocol.dart';
 import 'package:app/ui/core/themes/themes.dart';
@@ -14,6 +17,7 @@ Future<void> showModelPickerSheet(
   BuildContext context, {
   required QuickActionsViewModel vm,
 }) {
+  final selection = context.read<SessionSelection?>();
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: context.colors.bg,
@@ -24,10 +28,13 @@ Future<void> showModelPickerSheet(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
     builder: (ctx) {
-      return ChangeNotifierProvider<QuickActionsViewModel>.value(
+      final body = ChangeNotifierProvider<QuickActionsViewModel>.value(
         value: vm,
         child: const _ModelPickerBody(),
       );
+      return selection == null
+          ? body
+          : DismissOnSessionChange(selection: selection, child: body);
     },
   );
 }
@@ -63,6 +70,7 @@ class _ModelPickerBodyState extends State<_ModelPickerBody> {
 
   Future<void> _onPick(WireModel model) async {
     final vm = context.read<QuickActionsViewModel>();
+    if (vm.state is QuickActionsBusy) return;
     try {
       await vm.setModel(model);
       if (!mounted) return;
@@ -113,8 +121,7 @@ class _ModelPickerBodyState extends State<_ModelPickerBody> {
                     return _ProviderTabs(
                       catalogue: cat,
                       selectedProvider: _providerFilter,
-                      onProviderTap: (p) =>
-                          setState(() => _providerFilter = p),
+                      onProviderTap: (p) => setState(() => _providerFilter = p),
                       onModelPick: _onPick,
                     );
                   },
@@ -201,13 +208,12 @@ class _ProviderTabs extends StatelessWidget {
     final colors = context.colors;
     final providers = <String>{
       for (final m in catalogue.models) m.provider,
-    }.toList()
-      ..sort();
+    }.toList()..sort();
     final filtered = selectedProvider == null
         ? catalogue.models
         : catalogue.models
-            .where((m) => m.provider == selectedProvider)
-            .toList();
+              .where((m) => m.provider == selectedProvider)
+              .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -243,12 +249,17 @@ class _ProviderTabs extends StatelessWidget {
                 Divider(color: colors.border, height: 1, thickness: 1),
             itemBuilder: (_, i) {
               final m = filtered[i];
-              final isCurrent = catalogue.current?.id == m.id &&
+              final isCurrent =
+                  catalogue.current?.id == m.id &&
                   catalogue.current?.provider == m.provider;
               return _ModelTile(
                 model: m,
                 current: isCurrent,
-                onTap: () => onModelPick(m),
+                onTap:
+                    context.watch<QuickActionsViewModel>().state
+                        is QuickActionsBusy
+                    ? null
+                    : () => onModelPick(m),
               );
             },
           ),
@@ -276,9 +287,7 @@ class _Chip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          border: Border.all(
-            color: selected ? colors.accent : colors.border,
-          ),
+          border: Border.all(color: selected ? colors.accent : colors.border),
           color: selected ? colors.accent.withValues(alpha: 0.12) : colors.bg,
           borderRadius: BorderRadius.circular(4),
         ),
@@ -298,7 +307,7 @@ class _Chip extends StatelessWidget {
 class _ModelTile extends StatelessWidget {
   final WireModel model;
   final bool current;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   const _ModelTile({
     required this.model,
     required this.current,

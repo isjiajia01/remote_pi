@@ -33,18 +33,40 @@ const _editToolWithHunk = ToolEvent(
 );
 
 void main() {
-  group('ToolRequestCard (informational)', () {
-    testWidgets('shows tool name and command', (tester) async {
+  testWidgets(
+    'tools start collapsed, toggle exposes command and outcome; no approvals or shadow',
+    (tester) async {
       await tester.pumpWidget(_wrap(const ToolRequestCard(tool: _bashTool)));
-      expect(find.text('BASH'), findsOneWidget);
+      expect(find.text('Bash'), findsOneWidget);
       expect(find.text('ls -la'), findsOneWidget);
-    });
+      expect(find.text('Running'), findsNothing);
+      expect(find.byType(SelectableText), findsNothing);
+      expect(find.text('Allow'), findsNothing);
+      expect(find.text('Deny'), findsNothing);
+      final decoration = tester
+          .widgetList<Container>(find.byType(Container))
+          .map((c) => c.decoration)
+          .whereType<BoxDecoration>()
+          .first;
+      expect(decoration.boxShadow, isNull);
+      await tester.tap(find.byKey(const ValueKey('tool-toggle-tc1')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(SelectableText), findsOneWidget);
+      expect(find.text('Running'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('tool-toggle-tc1')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(SelectableText), findsNothing);
+    },
+  );
 
-    testWidgets('edit renders rich hunks with context lines', (tester) async {
+  testWidgets(
+    'expanded edit retains rich diff context, added and removed lines',
+    (tester) async {
       await tester.pumpWidget(
         _wrap(const ToolRequestCard(tool: _editToolWithHunk)),
       );
-
+      await tester.tap(find.byKey(const ValueKey('tool-toggle-tc2')));
+      await tester.pump(const Duration(milliseconds: 300));
       expect(
         find.textContaining('   16 args: {', findRichText: true),
         findsOneWidget,
@@ -61,99 +83,112 @@ void main() {
         find.textContaining('   18 },', findRichText: true),
         findsOneWidget,
       );
-    });
+    },
+  );
 
-    testWidgets('pending state shows RUNNING and no Allow/Deny buttons', (
-      tester,
-    ) async {
-      await tester.pumpWidget(_wrap(const ToolRequestCard(tool: _bashTool)));
-      expect(find.text('RUNNING'), findsOneWidget);
-      expect(find.text('Allow'), findsNothing);
-      expect(find.text('Deny'), findsNothing);
-      expect(find.textContaining('s'), findsAny); // no '60s' countdown
-      expect(find.textContaining('60s'), findsNothing);
-    });
-
-    testWidgets('completed state shows DONE', (tester) async {
-      const done = ToolEvent(
-        id: 'tc1',
-        toolCallId: 'tc1',
-        tool: 'Bash',
-        args: {'command': 'ls'},
-        status: ToolEventStatus.completed,
+  for (final status in ToolEventStatus.values) {
+    testWidgets('$status collapse rule and status glyph', (tester) async {
+      final tool = _bashTool.copyWith(
+        status: status,
+        error: status == ToolEventStatus.failed ? 'exit 1' : null,
       );
-      await tester.pumpWidget(_wrap(const ToolRequestCard(tool: done)));
-      expect(find.text('DONE'), findsOneWidget);
-      expect(find.textContaining('Done'), findsAny);
-    });
-
-    testWidgets('denied state shows DENIED label', (tester) async {
-      const denied = ToolEvent(
-        id: 'tc1',
-        toolCallId: 'tc1',
-        tool: 'Bash',
-        args: {'command': 'ls'},
-        status: ToolEventStatus.denied,
-        error: 'user denied',
-      );
-      await tester.pumpWidget(_wrap(const ToolRequestCard(tool: denied)));
-      expect(find.text('DENIED'), findsOneWidget);
-    });
-
-    testWidgets('allowed state shows RUNNING (still in flight)', (
-      tester,
-    ) async {
-      const allowed = ToolEvent(
-        id: 'tc1',
-        toolCallId: 'tc1',
-        tool: 'Bash',
-        args: {'command': 'ls'},
-        status: ToolEventStatus.allowed,
-      );
-      await tester.pumpWidget(_wrap(const ToolRequestCard(tool: allowed)));
-      expect(find.text('RUNNING'), findsOneWidget);
-      expect(find.text('Allow'), findsNothing);
-    });
-
-    // Plan/32 — the card is colored by status: running blue, done green,
-    // failed red. We assert the outcome line's color (the same _statusColor
-    // drives the border / icon / tool name).
-    Color? outcomeColor(WidgetTester tester, String text) =>
-        tester.widget<Text>(find.text(text)).style?.color;
-
-    testWidgets('completed → green "✓ Done"', (tester) async {
-      const done = ToolEvent(
-        id: 'tc1',
-        toolCallId: 'tc1',
-        tool: 'Bash',
-        args: {'command': 'ls'},
-        status: ToolEventStatus.completed,
-      );
-      await tester.pumpWidget(_wrap(const ToolRequestCard(tool: done)));
-      expect(outcomeColor(tester, '✓ Done'), AppColors.dark.success);
-    });
-
-    testWidgets('failed → red "✗ {error}" + FAILED label', (tester) async {
-      const failed = ToolEvent(
-        id: 'tc1',
-        toolCallId: 'tc1',
-        tool: 'Bash',
-        args: {'command': 'exit 1'},
-        status: ToolEventStatus.failed,
-        error: 'command failed: exit 1',
-      );
-      await tester.pumpWidget(_wrap(const ToolRequestCard(tool: failed)));
-      expect(find.text('FAILED'), findsOneWidget);
+      await tester.pumpWidget(_wrap(ToolRequestCard(tool: tool)));
       expect(
-        outcomeColor(tester, '✗ command failed: exit 1'),
-        AppColors.dark.error,
+        find.byType(SelectableText),
+        status == ToolEventStatus.failed ? findsOneWidget : findsNothing,
       );
+      if (status == ToolEventStatus.failed) {
+        final text = tester.widget<Text>(find.text('exit 1'));
+        expect(text.style?.color, AppColors.dark.error);
+      }
     });
+  }
 
-    testWidgets('running → blue "⏳ Running…"', (tester) async {
-      // pending defaults
-      await tester.pumpWidget(_wrap(const ToolRequestCard(tool: _bashTool)));
-      expect(outcomeColor(tester, '⏳ Running…'), AppColors.dark.accent);
-    });
+  testWidgets('failure arriving on a collapsed card auto-expands it', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_wrap(const ToolRequestCard(tool: _bashTool)));
+    await tester.pumpWidget(
+      _wrap(
+        ToolRequestCard(
+          tool: _bashTool.copyWith(
+            status: ToolEventStatus.failed,
+            error: 'failed',
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('failed'), findsOneWidget);
+    expect(find.byType(SelectableText), findsOneWidget);
   });
+
+  testWidgets('output is limited to 12 lines until Show all', (tester) async {
+    final output = List.generate(15, (i) => 'line $i').join('\n');
+    await tester.pumpWidget(
+      _wrap(
+        ToolRequestCard(
+          tool: _bashTool.copyWith(
+            status: ToolEventStatus.completed,
+            result: output,
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('tool-toggle-tc1')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('line 14'), findsNothing);
+    await tester.tap(find.text('Show all'));
+    await tester.pumpAndSettle();
+    expect(find.text(output), findsOneWidget);
+  });
+
+  for (final count in [3, 4, 5]) {
+    testWidgets('$count consecutive tools grouping threshold', (tester) async {
+      final tools = List.generate(
+        count,
+        (i) => ToolEvent(
+          id: '$i',
+          toolCallId: '$i',
+          tool: 'bash',
+          args: {'command': 'ls $i'},
+          status: ToolEventStatus.completed,
+        ),
+      );
+      await tester.pumpWidget(_wrap(ToolCallGroup(tools: tools)));
+      expect(
+        find.byType(ToolRequestCard),
+        count > 3 ? findsNothing : findsNWidgets(count),
+      );
+      if (count > 3) {
+        expect(find.text('$count tool calls'), findsOneWidget);
+        await tester.tap(find.text('$count tool calls'));
+        await tester.pumpAndSettle();
+        expect(find.byType(ToolRequestCard), findsNWidgets(count));
+      }
+    });
+  }
+  testWidgets(
+    'failed tool stays visible and expanded in a collapsed large group',
+    (tester) async {
+      final tools = List.generate(
+        5,
+        (i) => ToolEvent(
+          id: '$i',
+          toolCallId: '$i',
+          tool: 'bash',
+          args: {'command': 'ls'},
+          status: i == 2 ? ToolEventStatus.failed : ToolEventStatus.completed,
+          error: i == 2 ? 'permission denied' : null,
+        ),
+      );
+      await tester.pumpWidget(_wrap(ToolCallGroup(tools: tools)));
+      expect(find.text('5 tool calls'), findsOneWidget);
+      expect(find.byType(ToolRequestCard), findsOneWidget);
+      expect(find.text('permission denied'), findsOneWidget);
+      await tester.tap(find.text('5 tool calls'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ToolRequestCard), findsNWidgets(5));
+    },
+  );
 }

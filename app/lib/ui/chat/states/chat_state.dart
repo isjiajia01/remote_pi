@@ -21,6 +21,15 @@ class ChatConnecting extends ChatState {
 // Connected and ready.
 class ChatReady extends ChatState {
   final List<ChatMessage> messages;
+  final bool isConnecting;
+  final List<String> answeredQuestions;
+
+  bool get readOnly =>
+      isConnecting ||
+      isOffline ||
+      pairingRevoked ||
+      peerOfflineReason != null ||
+      peerPresence is PresenceOffline;
   final StreamingMessage? streaming;
   final bool isOffline; // true → input disabled, banner visible
   // True once the Mac signalled this device is no longer in peers.json
@@ -31,6 +40,7 @@ class ChatReady extends ChatState {
   // shows banner offering manual reconnect. `peerOfflineReason` is the
   // raw wire reason (peer_stop / session_replaced / shutdown / …).
   final String? peerOfflineReason;
+
   /// Live relay-reported presence of the active peer. When the peer is
   /// [PresenceOffline] the chat enters read-only mode (history visible,
   /// input disabled). Defaults to [PresenceUnknown] until the relay
@@ -61,6 +71,8 @@ class ChatReady extends ChatState {
 
   const ChatReady({
     required this.messages,
+    this.isConnecting = false,
+    this.answeredQuestions = const [],
     this.streaming,
     this.isOffline = false,
     this.pairingRevoked = false,
@@ -74,6 +86,8 @@ class ChatReady extends ChatState {
 
   ChatReady copyWith({
     List<ChatMessage>? messages,
+    bool? isConnecting,
+    List<String>? answeredQuestions,
     StreamingMessage? streaming,
     bool? isOffline,
     bool? pairingRevoked,
@@ -88,32 +102,35 @@ class ChatReady extends ChatState {
     bool clearPendingUiRequest = false,
     String? pendingUiError,
     bool clearPendingUiError = false,
-  }) =>
-      ChatReady(
-        messages: messages ?? this.messages,
-        streaming: clearStreaming ? null : (streaming ?? this.streaming),
-        isOffline: isOffline ?? this.isOffline,
-        pairingRevoked: pairingRevoked ?? this.pairingRevoked,
-        peerOfflineReason: clearPeerOffline
-            ? null
-            : (peerOfflineReason ?? this.peerOfflineReason),
-        peerPresence: peerPresence ?? this.peerPresence,
-        isWorking: isWorking ?? this.isWorking,
-        queuedMessages: clearQueuedMessages
-            ? const []
-            : (queuedMessages ?? this.queuedMessages),
-        pendingUiRequest: clearPendingUiRequest
-            ? null
-            : (pendingUiRequest ?? this.pendingUiRequest),
-        pendingUiError: clearPendingUiError
-            ? null
-            : (pendingUiError ?? this.pendingUiError),
-      );
+  }) => ChatReady(
+    messages: messages ?? this.messages,
+    isConnecting: isConnecting ?? this.isConnecting,
+    answeredQuestions: answeredQuestions ?? this.answeredQuestions,
+    streaming: clearStreaming ? null : (streaming ?? this.streaming),
+    isOffline: isOffline ?? this.isOffline,
+    pairingRevoked: pairingRevoked ?? this.pairingRevoked,
+    peerOfflineReason: clearPeerOffline
+        ? null
+        : (peerOfflineReason ?? this.peerOfflineReason),
+    peerPresence: peerPresence ?? this.peerPresence,
+    isWorking: isWorking ?? this.isWorking,
+    queuedMessages: clearQueuedMessages
+        ? const []
+        : (queuedMessages ?? this.queuedMessages),
+    pendingUiRequest: clearPendingUiRequest
+        ? null
+        : (pendingUiRequest ?? this.pendingUiRequest),
+    pendingUiError: clearPendingUiError
+        ? null
+        : (pendingUiError ?? this.pendingUiError),
+  );
 
   @override
   bool operator ==(Object other) =>
       other is ChatReady &&
       other.messages == messages &&
+      other.isConnecting == isConnecting &&
+      other.answeredQuestions == answeredQuestions &&
       other.streaming == streaming &&
       other.isOffline == isOffline &&
       other.pairingRevoked == pairingRevoked &&
@@ -126,17 +143,19 @@ class ChatReady extends ChatState {
 
   @override
   int get hashCode => Object.hash(
-        messages,
-        streaming,
-        isOffline,
-        pairingRevoked,
-        peerOfflineReason,
-        peerPresence.runtimeType,
-        isWorking,
-        queuedMessages,
-        pendingUiRequest,
-        pendingUiError,
-      );
+    messages,
+    isConnecting,
+    answeredQuestions,
+    streaming,
+    isOffline,
+    pairingRevoked,
+    peerOfflineReason,
+    peerPresence.runtimeType,
+    isWorking,
+    queuedMessages,
+    pendingUiRequest,
+    pendingUiError,
+  );
 }
 
 // Permanent offline — must re-pair.

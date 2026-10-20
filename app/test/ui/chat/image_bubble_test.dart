@@ -5,6 +5,7 @@ import 'package:app/domain/session_state.dart';
 import 'package:app/ui/chat/widgets/image_bubble.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 // 1×1 transparent PNG.
 const _png =
@@ -50,7 +51,22 @@ void main() {
       '',
     );
     await tester.pump();
-    expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
+    expect(find.byIcon(LucideIcons.imageOff), findsOneWidget);
     expect(find.byType(Image), findsNothing);
+  });
+  testWidgets('tap opens a zoomable viewer and close returns to caption', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      const MessageImage(data: _png, mime: 'image/png'),
+      'photo',
+    );
+    await tester.tap(find.byType(Image));
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    await tester.tap(find.byTooltip('Close image'));
+    await tester.pumpAndSettle();
+    expect(find.text('photo'), findsOneWidget);
   });
 }

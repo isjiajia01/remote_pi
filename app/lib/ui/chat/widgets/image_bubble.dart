@@ -4,9 +4,10 @@ import 'dart:typed_data';
 import 'package:app/domain/session_state.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Plan/30 — static image thumbnail + optional caption inside the user
-/// bubble (decision #7: no full-screen, no tap/zoom). Renders straight from
+/// bubble, with a full-screen viewer on tap. Renders straight from
 /// the inline base64 ([MessageImage.data]); the bytes are decoded once so
 /// list scrolling doesn't re-decode every frame.
 class ImageBubble extends StatefulWidget {
@@ -22,7 +23,7 @@ class ImageBubble extends StatefulWidget {
   final bool isFailed;
 
   /// Cap the thumbnail height; the width follows the bubble's 300px max.
-  static const double maxHeight = 220;
+  static const double maxHeight = 320;
 
   @override
   State<ImageBubble> createState() => _ImageBubbleState();
@@ -57,38 +58,72 @@ class _ImageBubbleState extends State<ImageBubble> {
   Widget build(BuildContext context) {
     final caption = widget.caption.trim();
     final colors = context.colors;
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.userBubble,
-        borderRadius: BorderRadius.circular(12),
-        border: widget.isFailed
-            ? Border.all(color: colors.error, width: 1)
-            : null,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: ImageBubble.maxHeight),
-            child: _bytes.isEmpty
-                ? _broken(context)
-                : Image.memory(
-                    _bytes,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                  ),
-          ),
-          if (caption.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-              child: Text(
-                caption,
-                style: context.typo.sansBody.copyWith(color: colors.text),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 240),
+      child: Container(
+        decoration: BoxDecoration(
+          color: colors.userBubble,
+          borderRadius: BorderRadius.circular(14),
+          border: widget.isFailed
+              ? Border.all(color: colors.error, width: 1)
+              : null,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GestureDetector(
+              onTap: _bytes.isEmpty
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        fullscreenDialog: true,
+                        builder: (ctx) => Scaffold(
+                          backgroundColor: ctx.colors.bg,
+                          appBar: AppBar(
+                            backgroundColor: ctx.colors.bg,
+                            leading: IconButton(
+                              tooltip: 'Close image',
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              icon: const Icon(LucideIcons.x),
+                            ),
+                          ),
+                          body: Center(
+                            child: InteractiveViewer(
+                              child: Image.memory(_bytes, fit: BoxFit.contain),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxHeight: ImageBubble.maxHeight,
+                  minHeight: 44,
+                ),
+                child: _bytes.isEmpty
+                    ? _broken(context)
+                    : Image.memory(
+                        _bytes,
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                      ),
               ),
             ),
-        ],
+            if (caption.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 13,
+                  vertical: 10,
+                ),
+                child: Text(
+                  caption,
+                  style: context.typo.chatBody.copyWith(color: colors.text),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -99,7 +134,7 @@ class _ImageBubbleState extends State<ImageBubble> {
       height: 120,
       color: colors.codeBg,
       alignment: Alignment.center,
-      child: Icon(Icons.broken_image_outlined, color: colors.muted, size: 28),
+      child: Icon(LucideIcons.imageOff, color: colors.muted, size: 28),
     );
   }
 }

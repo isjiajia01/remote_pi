@@ -54,8 +54,19 @@ class _RecordingStripState extends State<RecordingStrip>
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
+    );
     _pushSample(widget.level);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pulse.stop();
+      _pulse.value = 0;
+    } else if (!_pulse.isAnimating) {
+      _pulse.repeat(reverse: true);
+    }
   }
 
   @override
@@ -95,7 +106,7 @@ class _RecordingStripState extends State<RecordingStrip>
     final timerColor = cancel
         ? colors.muted
         : warn
-        ? colors.warning
+        ? colors.error
         : colors.text;
 
     return Row(
@@ -103,7 +114,9 @@ class _RecordingStripState extends State<RecordingStrip>
       children: [
         // Pulsing red dot.
         FadeTransition(
-          opacity: Tween<double>(begin: 1, end: 0.25).animate(_pulse),
+          opacity: MediaQuery.disableAnimationsOf(context)
+              ? const AlwaysStoppedAnimation(1)
+              : Tween<double>(begin: 1, end: 0.25).animate(_pulse),
           child: Container(
             width: 11,
             height: 11,
@@ -214,11 +227,7 @@ class _SlideToCancelHint extends StatelessWidget {
         const SizedBox(width: 2),
         Text(
           'slide to cancel',
-          style: TextStyle(
-            fontFamily: kMonoFamily,
-            fontSize: 11,
-            color: colors.muted,
-          ),
+          style: TextStyle(fontSize: 13, color: colors.muted),
         ),
       ],
     );
@@ -237,8 +246,7 @@ class _CancelHint extends StatelessWidget {
         Text(
           'release to cancel',
           style: TextStyle(
-            fontFamily: kMonoFamily,
-            fontSize: 12,
+            fontSize: 13,
             color: colors.error,
             fontWeight: FontWeight.w500,
           ),

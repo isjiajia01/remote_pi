@@ -2,174 +2,196 @@ import 'package:app/domain/session_state.dart';
 import 'package:app/protocol/protocol.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-// Inline tool execution card that appears in the chat flow.
-//
-// Historically this widget rendered Allow/Deny buttons + a 60s countdown
-// assuming the Pi paused execution until the user decided. With the current
-// Claude SDK integration the pi-extension emits `tool_request` AFTER the
-// SDK has already accepted the tool (`tool_execution_start` fires post
-// auto-approval), so the buttons could only blink for a few hundred
-// milliseconds before `tool_result` arrived — confusing UX with no real
-// gating. The card is now purely informational.
-//
-// `onDecide` is kept on the API for forward compat — when the Pi adds a
-// real approval pause we can re-enable the controls. Today it is unused.
-
-class ToolRequestCard extends StatelessWidget {
+/// Informational only: approval controls remain hidden; the API is retained.
+class ToolRequestCard extends StatefulWidget {
   final ToolEvent tool;
   final void Function(String toolCallId, ApproveDecision decision)? onDecide;
-
   const ToolRequestCard({super.key, required this.tool, this.onDecide});
 
-  /// Plan/32 — one color drives the whole card so the outcome is unmistakable:
-  /// running → blue, done → green, failed → red, denied/expired → grey.
-  Color _statusColor(BuildContext context) {
-    final colors = context.colors;
-    return switch (tool.status) {
-      ToolEventStatus.pending || ToolEventStatus.allowed => colors.accent,
-      ToolEventStatus.completed => colors.success,
-      ToolEventStatus.failed => colors.error,
-      ToolEventStatus.denied || ToolEventStatus.expired => colors.muted,
-    };
+  @override
+  State<ToolRequestCard> createState() => _ToolRequestCardState();
+}
+
+class _ToolRequestCardState extends State<ToolRequestCard> {
+  late bool _expanded = widget.tool.status == ToolEventStatus.failed;
+  bool _showAll = false;
+  ToolEvent get tool => widget.tool;
+  bool get _running =>
+      tool.status == ToolEventStatus.pending ||
+      tool.status == ToolEventStatus.allowed;
+
+  @override
+  void didUpdateWidget(ToolRequestCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tool.id != tool.id) {
+      _expanded = tool.status == ToolEventStatus.failed;
+      _showAll = false;
+    } else if (oldWidget.tool.status != ToolEventStatus.failed &&
+        tool.status == ToolEventStatus.failed) {
+      _expanded = true;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor(context);
-    // Dim only the inert states (denied/expired); keep done/failed at full
-    // opacity so their green/red read clearly.
-    final dimmed =
-        tool.status == ToolEventStatus.denied ||
-        tool.status == ToolEventStatus.expired;
-
-    return Opacity(
-      opacity: dimmed ? 0.65 : 1.0,
-      child: Container(
-        decoration: BoxDecoration(
-          color: context.colors.surface,
-          border: Border.all(color: color, width: 1),
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.13),
-              blurRadius: 20,
-              spreadRadius: 1,
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildHeader(context, color),
-            const SizedBox(height: 10),
-            _buildCodeBlock(context),
-            const SizedBox(height: 8),
-            _buildOutcome(color),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context, Color color) {
-    final statusLabel = switch (tool.status) {
-      ToolEventStatus.pending || ToolEventStatus.allowed => 'RUNNING',
-      ToolEventStatus.completed => 'DONE',
-      ToolEventStatus.failed => 'FAILED',
-      ToolEventStatus.denied => 'DENIED',
-      ToolEventStatus.expired => 'EXPIRED',
+    final c = context.colors;
+    final status = switch (tool.status) {
+      ToolEventStatus.pending || ToolEventStatus.allowed => 'Running',
+      ToolEventStatus.completed => 'Done',
+      ToolEventStatus.failed => 'Failed',
+      ToolEventStatus.denied => 'Denied',
+      ToolEventStatus.expired => 'Expired',
     };
-
-    return Row(
-      children: [
-        CustomPaint(
-          size: const Size(14, 14),
-          painter: _TerminalIconPainter(color: color),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          tool.tool.toUpperCase(),
-          style: TextStyle(
-            fontFamily: kMonoFamily,
-            fontSize: 11.5,
-            color: color,
-            letterSpacing: 0.6,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          statusLabel,
-          style: TextStyle(
-            fontFamily: kMonoFamily,
-            fontSize: 10,
-            color: color,
-            letterSpacing: 0.4,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCodeBlock(BuildContext context) {
-    final colors = context.colors;
-    final typo = context.typo;
-    final content = _buildToolSummary(context);
+    final statusColor = switch (tool.status) {
+      ToolEventStatus.pending || ToolEventStatus.allowed => c.accent,
+      ToolEventStatus.completed => c.online,
+      ToolEventStatus.failed => c.error,
+      ToolEventStatus.denied || ToolEventStatus.expired => c.ink3,
+    };
+    final output = tool.result?.toString() ?? '';
+    final lines = output.split('\n');
     return Container(
       decoration: BoxDecoration(
-        color: colors.codeBg,
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(8),
+        color: c.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _running ? c.accent : c.hairline),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(r'$ ', style: typo.mono.copyWith(color: colors.muted)),
-          Expanded(child: content),
+          Semantics(
+            button: true,
+            expanded: _expanded,
+            label: '${tool.tool}, $status',
+            child: InkWell(
+              key: ValueKey('tool-toggle-${tool.id}'),
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 44),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      if (_running)
+                        SizedBox.square(
+                          dimension: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: c.accent,
+                          ),
+                        )
+                      else
+                        Icon(
+                          tool.status == ToolEventStatus.completed
+                              ? LucideIcons.check
+                              : tool.status == ToolEventStatus.failed
+                              ? LucideIcons.x
+                              : LucideIcons.minus,
+                          size: 16,
+                          color: statusColor,
+                        ),
+                      const SizedBox(width: 8),
+                      Text(
+                        tool.tool,
+                        style: context.typo.mono.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _formatArgs(tool.tool, tool.args),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.typo.monoSmall,
+                        ),
+                      ),
+                      Icon(
+                        _expanded
+                            ? LucideIcons.chevronUp
+                            : LucideIcons.chevronDown,
+                        size: 16,
+                        color: c.ink3,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: Duration(
+              milliseconds: MediaQuery.disableAnimationsOf(context) ? 0 : 250,
+            ),
+            curve: Curves.easeInOutCubic,
+            alignment: Alignment.topCenter,
+            child: !_expanded
+                ? const SizedBox(width: double.infinity)
+                : Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildToolSummary(context),
+                        if (output.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _showAll ? output : lines.take(12).join('\n'),
+                            style: context.typo.monoCode,
+                          ),
+                          if (lines.length > 12 && !_showAll)
+                            TextButton(
+                              onPressed: () => setState(() => _showAll = true),
+                              child: const Text('Show all'),
+                            ),
+                        ],
+                        const SizedBox(height: 8),
+                        Text(
+                          tool.error ?? status,
+                          style: context.typo.caption.copyWith(
+                            color: tool.status == ToolEventStatus.failed
+                                ? c.error
+                                : c.ink2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildToolSummary(BuildContext context) {
-    final colors = context.colors;
-    final typo = context.typo;
     final display = _formatToolDisplay(tool.tool, tool.args);
     if (display == null) {
-      return Text(_formatArgs(tool.tool, tool.args), style: typo.mono);
+      return SelectableText(
+        _formatArgs(tool.tool, tool.args),
+        style: context.typo.monoCode,
+      );
     }
-
     return Text.rich(
       TextSpan(
-        style: typo.mono,
+        style: context.typo.monoCode,
         children: [
           TextSpan(text: display.command),
           for (final line in display.lines) ...[
             const TextSpan(text: '\n'),
             TextSpan(
               text: line.text,
-              style: TextStyle(color: line.color(colors)),
+              style: TextStyle(color: line.color(context.colors)),
             ),
           ],
         ],
       ),
-    );
-  }
-
-  Widget _buildOutcome(Color color) {
-    final text = switch (tool.status) {
-      ToolEventStatus.pending || ToolEventStatus.allowed => '⏳ Running…',
-      ToolEventStatus.completed => '✓ Done',
-      ToolEventStatus.failed => '✗ ${tool.error ?? "Failed"}',
-      ToolEventStatus.denied => '✗ ${tool.error ?? "Denied"}',
-      ToolEventStatus.expired => '✗ Expired',
-    };
-    return Text(
-      text,
-      style: TextStyle(fontFamily: kMonoFamily, fontSize: 12, color: color),
     );
   }
 
@@ -267,38 +289,66 @@ class _DiffLine {
       _DiffLine._(text, (colors) => colors.text);
 }
 
-// Minimal terminal icon (rectangle + > and —)
-class _TerminalIconPainter extends CustomPainter {
-  final Color color;
-  const _TerminalIconPainter({required this.color});
-
+/// Consecutive tools form one group; failures remain visible immediately.
+class ToolCallGroup extends StatefulWidget {
+  const ToolCallGroup({super.key, required this.tools, this.onDecide});
+  final List<ToolEvent> tools;
+  final void Function(String, ApproveDecision)? onDecide;
   @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..strokeCap = StrokeCap.round;
+  State<ToolCallGroup> createState() => _ToolCallGroupState();
+}
 
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(0.5, 1, size.width - 1, size.height - 2),
-        const Radius.circular(1.6),
-      ),
-      paint,
+class _ToolCallGroupState extends State<ToolCallGroup> {
+  bool _expanded = false;
+  @override
+  Widget build(BuildContext context) {
+    final hasFailure = widget.tools.any(
+      (t) => t.status == ToolEventStatus.failed,
     );
-    final path = Path()
-      ..moveTo(3, 4.5)
-      ..lineTo(5.5, 7)
-      ..lineTo(3, 9.5);
-    canvas.drawPath(path, paint);
-    canvas.drawLine(
-      Offset(6.5, size.height / 2),
-      Offset(size.width - 2, size.height / 2),
-      paint,
+    final grouped = widget.tools.length > 3;
+    final show = !grouped || _expanded;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (grouped)
+          TextButton(
+            onPressed: () => setState(() => _expanded = !_expanded),
+            child: Row(
+              children: [
+                Text(
+                  '${widget.tools.length} tool calls',
+                  style: context.typo.caption.copyWith(
+                    color: context.colors.ink2,
+                  ),
+                ),
+                const Spacer(),
+                Icon(
+                  show ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                  size: 16,
+                  color: context.colors.ink3,
+                ),
+              ],
+            ),
+          ),
+        if (!show && hasFailure)
+          for (final tool in widget.tools.where(
+            (t) => t.status == ToolEventStatus.failed,
+          ))
+            ToolRequestCard(
+              key: ValueKey(tool.id),
+              tool: tool,
+              onDecide: widget.onDecide,
+            ),
+        if (show)
+          for (var i = 0; i < widget.tools.length; i++) ...[
+            if (i > 0) const SizedBox(height: 4),
+            ToolRequestCard(
+              key: ValueKey(widget.tools[i].id),
+              tool: widget.tools[i],
+              onDecide: widget.onDecide,
+            ),
+          ],
+      ],
     );
   }
-
-  @override
-  bool shouldRepaint(_TerminalIconPainter old) => old.color != color;
 }
