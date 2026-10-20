@@ -44,20 +44,30 @@ export class SupervisorOfflineError extends Error {
  *   - `Error` from `parseReply` when the reply line is malformed.
  *   - The supervisor's own error string when `ok: false`.
  */
+export interface SupervisorCallOptions {
+  /** Explicit socket override for isolated callers/tests. */
+  sockPath?: string;
+  connectTimeoutMs?: number;
+  replyTimeoutMs?: number;
+}
+
+export class SupervisorReplyError extends Error {}
+
 export async function callSupervisor<Op extends ControlRequest["op"]>(
   req: Extract<ControlRequest, { op: Op }>,
+  options: SupervisorCallOptions = {},
 ): Promise<ControlReplyFor<Op>> {
-  const sockPath = getSupervisorSockPath();
+  const sockPath = options.sockPath ?? getSupervisorSockPath();
   // POSIX fast-fail on a missing socket file. Windows pipes have no file —
   // skip the check and let `_connect` fail fast if the pipe isn't there.
   if (!usesNamedPipe() && !existsSync(sockPath)) throw new SupervisorOfflineError(sockPath);
 
-  const sock = await _connect(sockPath);
+  const sock = await _connect(sockPath, options.connectTimeoutMs);
   try {
     sock.write(encodeRequest(req));
-    const line = await _readLine(sock);
+    const line = await _readLine(sock, options.replyTimeoutMs);
     const reply = parseReply(line) as ControlReply<ControlReplyFor<Op>>;
-    if (!reply.ok) throw new Error(reply.error);
+    if (!reply.ok) throw new SupervisorReplyError(reply.error);
     return reply.data as ControlReplyFor<Op>;
   } finally {
     sock.destroy();
@@ -81,7 +91,7 @@ export async function supervisorOnline(): Promise<boolean> {
 
 // ── internals ───────────────────────────────────────────────────────────────
 
-function _connect(sockPath: string): Promise<Socket> {
+function _connect(sockPath: string, timeoutMs = CONNECT_TIMEOUT_MS): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const sock = createConnection({ path: sockPath });
     let settled = false;
@@ -90,7 +100,7 @@ function _connect(sockPath: string): Promise<Socket> {
       settled = true;
       sock.destroy();
       reject(new SupervisorOfflineError(sockPath));
-    }, CONNECT_TIMEOUT_MS);
+    }, timeoutMs);
     sock.once("connect", () => {
       if (settled) return;
       settled = true;
@@ -107,15 +117,21 @@ function _connect(sockPath: string): Promise<Socket> {
   });
 }
 
-function _readLine(sock: Socket): Promise<string> {
+function _readLine(sock: Socket, timeoutMs = REPLY_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     let buf = "";
     const timer = setTimeout(() => {
       reject(new Error("supervisor reply timeout"));
       sock.destroy();
-    }, REPLY_TIMEOUT_MS);
+    }, timeoutMs);
     sock.on("data", (chunk: string) => {
       buf += chunk;
+      if (buf.length > 4 * 1024 * 1024) {
+        clearTimeout(timer);
+        reject(new Error("supervisor reply exceeds limit"));
+        sock.destroy();
+        return;
+      }
       const nl = buf.indexOf("\n");
       if (nl >= 0) {
         clearTimeout(timer);

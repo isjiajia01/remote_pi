@@ -18,6 +18,12 @@
  */
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { PerchControl, loadPerchControlConfig } from "../daemon/perch_control.js";
+import { createPerchControlRelay, type PerchControlRelay } from "../daemon/perch_control_relay.js";
+import { getOrCreateEd25519Keypair, listPeers } from "../pairing/storage.js";
+import { canonicalizeEd25519PublicKey } from "../mesh/encoding.js";
+import { resolveRelayUrl, toWebSocketUrl } from "../config.js";
 import { Supervisor, SupervisorAlreadyRunningError } from "../daemon/supervisor.js";
 
 const HELP_TEXT = `pi-supervisord — Remote Pi daemon supervisor
@@ -73,8 +79,28 @@ async function main(): Promise<void> {
     `[pi-supervisord] up — UDS: ~/.pi/remote/supervisor.sock, extension: ${extensionPath}\n`,
   );
 
+  // Explicit local opt-in only. This endpoint belongs to the supervisor,
+  // so stopping the last child never removes remote recovery access.
+  const controlRoot = join(process.env["REMOTE_PI_HOME"] || homedir(), ".pi", "remote");
+  const configPath = join(controlRoot, "perch-control.json");
+  let controlRelay: PerchControlRelay | undefined;
+  if (loadPerchControlConfig(configPath).enabled) {
+    try {
+      const control = new PerchControl({ configPath, journalPath: join(controlRoot, "perch-control-journal.json"),
+        isPaired: async (owner) => (await listPeers()).some((peer) => {
+          try { return canonicalizeEd25519PublicKey(peer.remote_epk) === owner; } catch { return false; }
+        }) });
+      const keypair = await getOrCreateEd25519Keypair();
+      controlRelay = createPerchControlRelay(control, toWebSocketUrl(resolveRelayUrl().url), keypair);
+      controlRelay.start();
+    } catch {
+      process.stderr.write("[pi-supervisord] Perch control unavailable; check local identity/config/journal\n");
+    }
+  }
+
   const shutdown = async (signal: string) => {
     process.stderr.write(`[pi-supervisord] received ${signal}, shutting down\n`);
+    controlRelay?.stop();
     await supervisor.stop();
     process.exit(0);
   };

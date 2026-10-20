@@ -1,0 +1,29 @@
+{
+  "request": {
+    "type": "perch_capabilities_get",
+    "id": "cap-control"
+  },
+  "response": {
+    "type": "perch_capabilities_result",
+    "id": "cap-control",
+    "version": 1,
+    "methods": [
+      "daemon.list",
+      "daemon.start",
+      "daemon.stop",
+      "daemon.restart",
+      "cron.list",
+      "cron.add",
+      "cron.set_enabled",
+      "cron.remove",
+      "cron.run",
+      "cron.log"
+    ],
+    "scope": "supervisor",
+    "ack_semantics": "delivery_only",
+    "limits": {
+      "max_prompt_chars": 8192,
+      "max_log_entries": 100
+    }
+  }
+}

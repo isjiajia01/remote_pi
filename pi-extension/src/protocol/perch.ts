@@ -8,10 +8,10 @@ export const PERCH_LIMITS = {
 } as const;
 export const PERCH_METHODS = ["agents.list", "agents.events"] as const;
 export type PerchErrorCode = "unauthorized" | "forbidden" | "unsupported" |
-  "invalid_argument" | "offline" | "timeout" | "internal";
+  "invalid_argument" | "conflict" | "offline" | "timeout" | "internal";
 export type PerchClientMessage =
   | { type: "perch_capabilities_get"; id: string }
-  | { type: "perch_request"; id: string; version: number; method: string; params: Record<string, unknown> };
+  | { type: "perch_request"; id: string; version: number; method: string; params: Record<string, unknown>; expected_revision?: number };
 export type PerchEvent = {
   cursor: number;
   ts: number;
@@ -29,9 +29,9 @@ export type PerchEvents = {
 };
 export type PerchServerMessage =
   | { type: "perch_capabilities_result"; id: string; version: 1;
-      methods: typeof PERCH_METHODS; scope: "local_broker";
-      ack_semantics: "delivery_only"; limits: typeof PERCH_LIMITS }
-  | { type: "perch_result"; id: string; version: 1; method: string; result: PerchSnapshot | PerchEvents }
+      methods: readonly string[]; scope: "local_broker" | "supervisor";
+      ack_semantics: "delivery_only"; limits: typeof PERCH_LIMITS | { max_prompt_chars: number; max_log_entries: number } }
+  | { type: "perch_result"; id: string; version: 1; method: string; result: PerchSnapshot | PerchEvents | { scope: "supervisor"; revision: number; data: unknown } }
   | { type: "perch_error"; id: string; version: 1; error: { code: PerchErrorCode; message: string } };
 
 export function perchError(id: string, code: PerchErrorCode, message: string): PerchServerMessage {

@@ -1,0 +1,27 @@
+{
+  "request": {
+    "type": "perch_request",
+    "id": "start-1",
+    "version": 1,
+    "method": "daemon.start",
+    "params": {
+      "id": "1234abcd"
+    },
+    "expected_revision": 0
+  },
+  "response": {
+    "type": "perch_result",
+    "id": "start-1",
+    "version": 1,
+    "method": "daemon.start",
+    "result": {
+      "scope": "supervisor",
+      "revision": 2,
+      "data": {
+        "id": "1234abcd",
+        "state": "running",
+        "started": true
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "request": {
+    "type": "perch_request",
+    "id": "conflict-1",
+    "version": 1,
+    "method": "daemon.stop",
+    "params": {
+      "id": "1234abcd"
+    },
+    "expected_revision": 0
+  },
+  "response": {
+    "type": "perch_error",
+    "id": "conflict-1",
+    "version": 1,
+    "error": {
+      "code": "conflict",
+      "message": "Expected revision differs from 2"
+    }
+  }
+}

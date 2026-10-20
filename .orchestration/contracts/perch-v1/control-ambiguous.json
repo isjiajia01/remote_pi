@@ -1,0 +1,20 @@
+{
+  "request": {
+    "type": "perch_request",
+    "id": "restart",
+    "version": 1,
+    "method": "daemon.restart",
+    "params": {
+      "id": "1234abcd"
+    }
+  },
+  "response": {
+    "type": "perch_error",
+    "id": "restart",
+    "version": 1,
+    "error": {
+      "code": "conflict",
+      "message": "Previous IPC outcome uncertain; state reconciled, inspect fresh lists before a new request"
+    }
+  }
+}
