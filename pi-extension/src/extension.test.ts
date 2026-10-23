@@ -325,7 +325,7 @@ describe("extension default export", () => {
     expect(typeof extension).toBe("function");
   });
 
-  test("registers the user-facing commands (post plan/26 W3: + install/uninstall)", () => {
+  test("registers the minimal user-facing commands", () => {
     const { pi, registeredCommands } = makeMockPi();
     (extension as ExtensionFactory)(pi);
     // Local session (plan/25)
@@ -337,22 +337,9 @@ describe("extension default export", () => {
     expect(registeredCommands).toContain("remote-pi devices");
     expect(registeredCommands).toContain("remote-pi revoke");
     expect(registeredCommands).toContain("remote-pi set-relay");
-    // Daemon registry (plan/26 W1)
-    expect(registeredCommands).toContain("remote-pi create");
-    expect(registeredCommands).toContain("remote-pi remove");
-    // Fleet ops (plan/26 W2) — use `daemon` prefix to avoid clashing with
-    // /remote-pi stop (local) since both have very different semantics.
-    expect(registeredCommands).toContain("remote-pi daemons");
-    expect(registeredCommands).toContain("remote-pi daemon start");
-    expect(registeredCommands).toContain("remote-pi daemon stop");
-    expect(registeredCommands).toContain("remote-pi daemon restart");
-    expect(registeredCommands).toContain("remote-pi daemon status");
-    expect(registeredCommands).toContain("remote-pi daemon send");
-    // Service install (plan/26 W3) — systemd / launchd
-    expect(registeredCommands).toContain("remote-pi install");
-    expect(registeredCommands).toContain("remote-pi uninstall");
-    // Cross-PC peer inventory (plan/25 W D)
-    expect(registeredCommands).toContain("remote-pi peers");
+    expect(registeredCommands).toContain("remote-pi rename");
+    expect(registeredCommands).toContain("remote-pi config");
+    expect(registeredCommands).toContain("remote-pi relay");
   });
 
   test("restart-supervisor maps to the right OS command sequence per platform", () => {
@@ -374,10 +361,8 @@ describe("extension default export", () => {
   test("no deprecated or removed commands leak back into the surface", () => {
     const { pi, registeredCommands } = makeMockPi();
     (extension as ExtensionFactory)(pi);
-    // 8 plan-25 + 2 daemon registry (W1) + 6 fleet ops (W2) + 2 install (W3)
-    // + 1 cross-PC inventory (plan-25 W D) + 1 cron (plan-39) + 1 rename (plan/41)
-    // + 1 relay control (issue #119 — README documents the verb family).
-    expect(registeredCommands).toHaveLength(23);
+    // Perch minimal edition: 11 commands (pairing, chat lifecycle, relay/config).
+    expect(registeredCommands).toHaveLength(11);
     // `relay` is back as ONE command with verbs (start/stop/status/url), not the
     // five separate registrations plan/19 trimmed — the README documents it and
     // without it every `/remote-pi relay …` silently reprinted the status panel.
@@ -616,182 +601,6 @@ describe("state machine + pair_request flow", () => {
     }));
 
     await vi.waitFor(() => expect(_getState()).toBe("paired"), { timeout: 2000 });
-  });
-
-  test("Perch approval hook routes bound decisions only; legacy/revoked/unknown senders cannot allow", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "perch-hook-"));
-    mkdirSync(join(cwd, ".pi", "remote-pi"), { recursive: true });
-    writeFileSync(join(cwd, ".pi", "remote-pi", "perch-approvals.json"),
-      JSON.stringify({ enabled: true, tools: ["danger"], timeout_ms: 1000 }));
-    // Start only the mocked relay: never join the machine's real local broker.
-    await _startRelayForTest(makeMockCtx(cwd));
-    let hook!: (event: object, ctx: object) => Promise<unknown>;
-    const { pi } = makeMockPi();
-    pi.on = ((name: string, handler: typeof hook) => { if (name === "tool_call") hook = handler; }) as ExtensionAPI["on"];
-    extension(pi);
-    _knownPeers.push({ name: "Owner", remote_epk: OWNER_STANDARD_FIXTURE, paired_at: new Date().toISOString() });
-    const relay = relayRef.current!;
-    const send = (peer: string, msg: object) => relay.emit("message", makeInnerLine(peer, msg));
-    const requests = () => relay.send.mock.calls.map((c) => decodeSentCt(c[0] as string).inner)
-      .filter((msg) => msg.type === "perch_tool_approval_request");
-    try {
-      send(OWNER_STANDARD_FIXTURE, { type: "ping", id: "attach" });
-      await vi.waitFor(() => expect(_hasActivePeerForTest(OWNER_STANDARD_FIXTURE)).toBe(true));
-      let executions = 0;
-      const call = (id: string) => hook({ type: "tool_call", toolName: "danger", toolCallId: id, input: { value: 1 } },
-        { cwd }).then((result) => { if (!(result as { block?: boolean })?.block) executions++; return result; });
-      const first = call("first");
-      await vi.waitFor(() => expect(requests()).toHaveLength(1));
-      const request = requests()[0]!;
-      const decision = { ...request, type: "perch_tool_approval_decision", decision: "allow" };
-      send(OWNER_STANDARD_FIXTURE, { type: "approve_tool", id: request.id, tool_call_id: "first", decision: "allow" });
-      send(OTHER_OWNER_STANDARD_FIXTURE, decision);
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      expect(executions).toBe(0);
-      send(OWNER_STANDARD_FIXTURE, decision);
-      expect(await first).toBeUndefined();
-      expect(executions).toBe(1);
-      const second = call("second");
-      await vi.waitFor(() => expect(requests()).toHaveLength(2));
-      send(OWNER_STANDARD_FIXTURE, decision); // old challenge cannot release second
-      expect(executions).toBe(1);
-      _knownPeers.length = 0;
-      send(OWNER_STANDARD_FIXTURE, { ...requests()[1], type: "perch_tool_approval_decision", decision: "allow" });
-      expect(await second).toHaveProperty("block", true);
-      expect(executions).toBe(1);
-      // Missing config preserves legacy execution; malformed existing config blocks.
-      expect(await hook({ type: "tool_call", toolName: "danger", input: {} }, { cwd: join(cwd, "absent") })).toBeUndefined();
-      writeFileSync(join(cwd, ".pi", "remote-pi", "perch-approvals.json"), "{");
-      expect(await hook({ type: "tool_call", toolName: "danger", input: {} }, { cwd })).toHaveProperty("block", true);
-    } finally {
-      await captureHandler("remote-pi stop")("", makeMockCtx(cwd));
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("Perch push registration uses relay Owner, approval and completion emit opaque local APNs alerts", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "perch-push-hook-"));
-    const configPath = join(cwd, "perch-push.json");
-    const tokenDir = join(cwd, "tokens");
-    const token = "a".repeat(64);
-    const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
-    const keyPath = join(cwd, "throwaway.p8");
-    writeFileSync(keyPath, pair.privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
-    const config = { enabled: true as const, key_path: keyPath, key_id: "TESTKEY001", team_id: "TESTTEAM01",
-      topic: "dev.zhangjiajia.perch" as const, environment: "sandbox" as const };
-    writeFileSync(configPath, JSON.stringify(config));
-    mkdirSync(join(cwd, ".pi", "remote-pi"), { recursive: true });
-    writeFileSync(join(cwd, ".pi", "remote-pi", "perch-approvals.json"),
-      JSON.stringify({ enabled: true, tools: ["danger"], timeout_ms: 1000 }));
-    const payloads: Record<string, unknown>[] = [];
-    const server = createServer();
-    server.on("stream", (stream) => {
-      let body = "";
-      stream.setEncoding("utf8");
-      stream.on("data", (chunk: string) => { body += chunk; });
-      stream.on("end", () => { payloads.push(JSON.parse(body)); stream.respond({ ":status": 200 }); stream.end(); });
-    });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("No fake APNs port");
-    const localSender = new ApnsSender(config, `http://127.0.0.1:${address.port}`);
-    const localSend = localSender.send.bind(localSender);
-    const sender = vi.spyOn(ApnsSender.prototype, "send").mockImplementation(localSend);
-    vi.stubEnv("PERCH_PUSH_CONFIG_PATH", configPath);
-    vi.stubEnv("PERCH_PUSH_TOKEN_DIR", tokenDir);
-    try {
-      await _startRelayForTest(makeMockCtx(cwd));
-      const hooks = new Map<string, (event: object, ctx: object) => Promise<unknown>>();
-      const { pi } = makeMockPi();
-      pi.on = ((name: string, handler: (event: object, ctx: object) => Promise<unknown>) => { hooks.set(name, handler); }) as ExtensionAPI["on"];
-      extension(pi);
-      _knownPeers.push({ name: "Owner", remote_epk: OWNER_STANDARD_FIXTURE, paired_at: new Date().toISOString() });
-      const relay = relayRef.current!;
-      const send = (peer: string, msg: object) => relay.emit("message", makeInnerLine(peer, msg));
-      const messages = () => relay.send.mock.calls.map((c) => decodeSentCt(c[0] as string).inner);
-      const registration = { type: "perch_push_register", id: "register-hook", version: 1,
-        owner: OWNER_STANDARD_FIXTURE, token, environment: "sandbox" };
-      send(OTHER_OWNER_STANDARD_FIXTURE, registration);
-      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({ type: "perch_error", id: "register-hook" })));
-      send(OWNER_STANDARD_FIXTURE, { ...registration, id: "spoof", owner: OTHER_OWNER_STANDARD_FIXTURE });
-      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({ id: "spoof", error: expect.objectContaining({ code: "unauthorized" }) })));
-      send(OWNER_STANDARD_FIXTURE, registration);
-      await vi.waitFor(() => expect(messages()).toContainEqual({ type: "perch_push_result", id: "register-hook", version: 1, registered: true }));
-      expect(new PushTokenRegistry(tokenDir).devices(OWNER_STANDARD_FIXTURE, "sandbox")).toHaveLength(1);
-      const waiting = hooks.get("tool_call")!({ type: "tool_call", toolName: "danger", toolCallId: "private-call", input: { secret: "DO NOT SEND" } }, { cwd });
-      await vi.waitFor(() => expect(payloads).toHaveLength(1));
-      const request = messages().find((msg) => msg.type === "perch_tool_approval_request")!;
-      expect(payloads[0]).toEqual({ aps: { alert: "Perch has an update", sound: "default" }, kind: "approval_request",
-        event_id: request.id, session_id: request.session_id, tool_call_id: "private-call" });
-      send(OWNER_STANDARD_FIXTURE, { ...request, type: "perch_tool_approval_decision", decision: "allow" });
-      expect(await waiting).toBeUndefined();
-      await hooks.get("agent_start")!({}, { cwd });
-      await hooks.get("agent_end")!({}, { cwd });
-      await vi.waitFor(() => expect(payloads).toHaveLength(2));
-      expect(payloads[1]).toMatchObject({ kind: "session_finished", event_id: expect.any(String), session_id: expect.any(String) });
-      await hooks.get("agent_end")!({}, { cwd });
-      expect(payloads).toHaveLength(2);
-      send(OWNER_STANDARD_FIXTURE, { ...registration, type: "perch_push_unregister", id: "unregister-hook" });
-      await vi.waitFor(() => expect(messages()).toContainEqual({ type: "perch_push_result", id: "unregister-hook", version: 1, registered: false }));
-      expect(new PushTokenRegistry(tokenDir).devices(OWNER_STANDARD_FIXTURE, "sandbox")).toEqual([]);
-    } finally {
-      await captureHandler("remote-pi stop")("", makeMockCtx(cwd));
-      sender.mockRestore();
-      vi.unstubAllEnvs();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("Perch negotiation reuses paired Owner check and revocation is rechecked", async () => {
-    // The machine-wide broker can belong to an older live install. This test
-    // needs the broker under test, rather than that unrelated process.
-    const dir = mkdtempSync(join(tmpdir(), "perch-owner-"));
-    const config = await import("./session/global_config.js");
-    const { ipcAddress } = await import("./session/ipc.js");
-    const sock = vi.spyOn(config, "sessionSockPath").mockReturnValue(
-      ipcAddress(`perch-owner-${basename(dir)}`, join(dir, "broker.sock")),
-    );
-    const audit = vi.spyOn(config, "sessionAuditPath").mockReturnValue(join(dir, "audit.jsonl"));
-    try {
-      const owner = OWNER_STANDARD_FIXTURE;
-      _knownPeers.push({ name: "Owner", remote_epk: owner, paired_at: new Date().toISOString() });
-      captureHandler("remote-pi");
-      await _connectForTest(makeMockCtx(dir));
-      expect(_hasMeshNodeForTest()).toBe(true);
-      relayRef.current!.emit("message", makeInnerLine(owner, { type: "perch_capabilities_get", id: "cap-1" }));
-      const messages = () => relayRef.current!.send.mock.calls.map((c) => decodeSentCt(c[0] as string).inner);
-      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({
-        type: "perch_capabilities_result", id: "cap-1", version: 1, ack_semantics: "delivery_only",
-      })));
-      relayRef.current!.emit("message", makeInnerLine(owner, { type: "perch_request", id: "list-1", version: 1, method: "agents.list", params: {} }));
-      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({
-        type: "perch_result", id: "list-1", version: 1, method: "agents.list",
-        result: expect.objectContaining({ scope: "local_broker", revision: 1,
-          agents: [expect.objectContaining({ cwd: realpathSync(dir) })] }),
-      })));
-      const snapshot = messages().find((m) => m.id === "list-1")!.result as { epoch: string; cursor: number };
-      relayRef.current!.emit("message", makeInnerLine(owner, { type: "perch_request", id: "events-1", version: 1,
-        method: "agents.events", params: { epoch: snapshot.epoch, cursor: snapshot.cursor, wait_ms: 1 } }));
-      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({
-        type: "perch_result", id: "events-1", version: 1, method: "agents.events",
-        result: { scope: "local_broker", epoch: snapshot.epoch, cursor: snapshot.cursor, events: [], resync_required: false },
-      })));
-      _knownPeers.length = 0;
-      relayRef.current!.emit("message", makeInnerLine(owner, { type: "perch_request", id: "revoked-1", version: 1, method: "agents.list", params: {} }));
-      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({
-        type: "perch_error", id: "revoked-1", error: expect.objectContaining({ code: "unauthorized" }),
-      })));
-      relayRef.current!.emit("message", makeInnerLine("unpaired", { type: "perch_capabilities_get", id: "unknown-1" }));
-      await vi.waitFor(() => expect(messages()).toContainEqual(expect.objectContaining({
-        type: "perch_error", id: "unknown-1", error: expect.objectContaining({ code: "unauthorized" }),
-      })));
-    } finally {
-      await captureHandler("remote-pi stop")("", makeMockCtx(dir));
-      sock.mockRestore();
-      audit.mockRestore();
-      rmSync(dir, { recursive: true, force: true });
-    }
   });
 
   test("unknown peer non-pair message → state stays started, no peer added", async () => {
@@ -1178,61 +987,6 @@ describe("/remote-pi revoke", () => {
 void _getActivePeerCountForTest;
 
 // ── agent-network mesh delivery ──────────────────────────────────────────────
-
-describe("agent-network mesh delivery", () => {
-  test("holds messages until agent_end listeners finish and starts one turn for the batch", async () => {
-    const harness = captureEventHarness();
-    const sendMessage = vi.fn();
-    _setPiForTest({ sendMessage, sendUserMessage: () => undefined });
-    harness.handler("agent_start")({ type: "agent_start" });
-
-    _deliverMeshMessageToAgentForTest({
-      id: "mesh-message-1",
-      from: "/work/repo@reviewer",
-      re: null,
-      body: { status: "first" },
-    });
-    _deliverMeshMessageToAgentForTest({
-      id: "mesh-message-2",
-      from: "/work/repo@worker",
-      re: "mesh-message-1",
-      body: { status: "second" },
-    });
-    await Promise.resolve();
-
-    expect(sendMessage).not.toHaveBeenCalled();
-
-    harness.handler("agent_end")({ type: "agent_end" });
-    expect(sendMessage).not.toHaveBeenCalled();
-
-    harness.handler("agent_start")({ type: "agent_start" });
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    expect(sendMessage).not.toHaveBeenCalled();
-
-    harness.handler("agent_end")({ type: "agent_end" });
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    expect(sendMessage).toHaveBeenCalledTimes(2);
-    expect(sendMessage.mock.calls[0]).toEqual([
-      expect.objectContaining({
-        customType: "remote-pi:mesh-message",
-        display: true,
-        content: expect.stringContaining("mesh-message-1"),
-      }),
-      { triggerTurn: false },
-    ]);
-    expect(sendMessage.mock.calls[1]).toEqual([
-      expect.objectContaining({
-        customType: "remote-pi:mesh-message",
-        display: true,
-        content: expect.stringContaining("mesh-message-2"),
-      }),
-      { triggerTurn: true, deliverAs: "followUp" },
-    ]);
-
-    harness.handler("agent_end")({ type: "agent_end" });
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  });
-});
 
 // ── user_input mirroring (local terminal / RPC) ───────────────────────────────
 
@@ -4940,21 +4694,6 @@ describe("session_start auto-init skips relay in print/-p mode (#44)", () => {
     expect(relayInstances).toHaveLength(0);
   });
 
-  // Guard the negative: a normal interactive session_start (no -p/--print) still
-  // auto-starts exactly as before, so the fix doesn't disable auto-init at large.
-  test("interactive session_start (no -p) still auto-starts the mesh", async () => {
-    process.env["REMOTE_PI_DIRECT_CONFIG"] = JSON.stringify({
-      agent_name: "InteractiveAgent",
-      auto_start_relay: true,
-    });
-    process.argv = ["node", "pi"];
-    const onSessionStart = captureEventHandler("session_start");
-    _resetAutoInitedForTest();
-    onSessionStart({ type: "session_start" }, makeMockCtx("/home/user/projects/rp-interactive"));
-    await new Promise<void>((r) => setTimeout(r, 20));
-
-    expect(_hasMeshNodeForTest()).toBe(true);
-  });
 });
 
 // ── relay reconnect with backoff ──────────────────────────────────────────────
@@ -4981,56 +4720,6 @@ describe("relay reconnect", () => {
     );
     const stop = captureHandler("remote-pi stop");
     await stop("", makeMockCtx());
-  });
-
-  test("/remote-pi stop cancels a pending mesh join before Relay startup", async () => {
-    const joinGate = deferred<string>();
-    let joinReleased = false;
-    let rootPromise: Promise<void> | undefined;
-    const meshNodeModule = await import("./session/mesh_node.js");
-    const connectSpy = vi.spyOn(meshNodeModule.MeshNode.prototype, "connect")
-      .mockImplementation(() => joinGate.promise);
-    const attachBridgeSpy = vi.spyOn(meshNodeModule.MeshNode.prototype, "attachBridge")
-      .mockResolvedValue(undefined);
-    let candidateCloseSpy: ReturnType<typeof vi.spyOn> | undefined;
-    const cwd = `/tmp/remote-pi-join-cancel-${process.pid}-${Date.now()}`;
-
-    try {
-      process.env["REMOTE_PI_DIRECT_CONFIG"] = JSON.stringify({
-        agent_name: "join-cancel",
-        auto_start_relay: true,
-      });
-      const root = captureHandler("remote-pi");
-      rootPromise = root("", makeMockCtx(cwd));
-      await vi.waitFor(() => expect(connectSpy).toHaveBeenCalledTimes(1));
-      const candidate = connectSpy.mock.instances[0]!;
-      candidateCloseSpy = vi.spyOn(candidate, "close").mockResolvedValue(undefined);
-      expect(_hasMeshNodeForTest()).toBe(false);
-      expect(_getState()).toBe("idle");
-
-      const stop = captureHandler("remote-pi stop");
-      await stop("", makeMockCtx(cwd));
-
-      joinReleased = true;
-      joinGate.resolve("join-cancel");
-      await rootPromise;
-
-      expect(candidateCloseSpy).toHaveBeenCalledTimes(1);
-      expect(_hasMeshNodeForTest()).toBe(false);
-      expect(_getState()).toBe("idle");
-      expect(relayInstances).toHaveLength(0);
-      expect(attachBridgeSpy).not.toHaveBeenCalled();
-    } finally {
-      if (!joinReleased) joinGate.resolve("join-cancel");
-      await rootPromise?.catch(() => undefined);
-      delete process.env["REMOTE_PI_DIRECT_CONFIG"];
-      const stop = captureHandler("remote-pi stop");
-      await stop("", makeMockCtx(cwd));
-      _resetCwdLockForTest();
-      candidateCloseSpy?.mockRestore();
-      attachBridgeSpy.mockRestore();
-      connectSpy.mockRestore();
-    }
   });
 
   test("/remote-pi stop cancels delayed keypair resolve before any Relay side effect", async () => {
@@ -5297,102 +4986,6 @@ describe("relay reconnect", () => {
       expect(relayInstances).toHaveLength(1);
     } finally {
       vi.useRealTimers();
-    }
-  });
-
-  test("stale reconnect candidate cannot replace a stop/start Relay lifecycle", async () => {
-    const staleConnect = deferred<void>();
-    let staleConnectReleased = false;
-    let cleanedUp = false;
-    const meshNodeModule = await import("./session/mesh_node.js");
-    const attachBridgeSpy = vi.spyOn(meshNodeModule.MeshNode.prototype, "attachBridge")
-      .mockResolvedValue(undefined);
-
-    try {
-      _knownPeers.push({
-        name: "Known Owner",
-        remote_epk: OWNER_STANDARD_FIXTURE,
-        paired_at: "now",
-      });
-      captureHandler("remote-pi");
-      await _connectForTest(makeMockCtx());
-      const originalRelay = relayInstances[0]!;
-
-      let deferNextConnect = true;
-      _defaultConnectImpl = () => {
-        if (deferNextConnect) {
-          deferNextConnect = false;
-          return staleConnect.promise;
-        }
-        return Promise.resolve();
-      };
-
-      vi.useFakeTimers();
-      originalRelay.emit("close");
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(relayInstances).toHaveLength(2);
-      const staleRelay = relayInstances[1]!;
-      expect(staleRelay.connect).toHaveBeenCalledTimes(1);
-      vi.useRealTimers();
-
-      const stop = captureHandler("remote-pi stop");
-      await stop("", makeMockCtx());
-      expect(_getState()).toBe("idle");
-
-      await _connectForTest(makeMockCtx());
-      expect(relayInstances).toHaveLength(3);
-      const replacementRelay = relayInstances[2]!;
-      expect(_getState()).toBe("started");
-      expect(attachBridgeSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ relay: replacementRelay }),
-      );
-
-      staleConnectReleased = true;
-      staleConnect.resolve(undefined);
-      await staleConnect.promise;
-      await Promise.resolve();
-
-      expect(staleRelay.close).toHaveBeenCalledTimes(1);
-      expect(attachBridgeSpy.mock.calls.some(
-        ([options]) => options.relay === staleRelay,
-      )).toBe(false);
-
-      staleRelay.emit("message", makeInnerLine(OWNER_STANDARD_FIXTURE, {
-        type: "ping", id: "stale-route",
-      }));
-      replacementRelay.emit("message", makeInnerLine(OWNER_STANDARD_FIXTURE, {
-        type: "ping", id: "replacement-route",
-      }));
-      await vi.waitFor(() => expect(replacementRelay.send).toHaveBeenCalled());
-      const replacementMessages = replacementRelay.send.mock.calls
-        .map((call) => decodeSentCt(call[0] as string).inner);
-      expect(replacementMessages).toContainEqual(
-        expect.objectContaining({ type: "pong", in_reply_to: "replacement-route" }),
-      );
-      expect(staleRelay.send).not.toHaveBeenCalled();
-      expect(_hasPendingReconnect()).toBe(false);
-
-      const relayCount = relayInstances.length;
-      vi.useFakeTimers();
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(relayInstances).toHaveLength(relayCount);
-      vi.useRealTimers();
-
-      await stop("", makeMockCtx());
-      cleanedUp = true;
-      expect(replacementRelay.close).toHaveBeenCalledTimes(1);
-      expect(staleRelay.close).toHaveBeenCalledTimes(1);
-      expect(_getState()).toBe("idle");
-    } finally {
-      vi.useRealTimers();
-      if (!staleConnectReleased) staleConnect.resolve(undefined);
-      await staleConnect.promise;
-      await Promise.resolve();
-      if (!cleanedUp) {
-        const stop = captureHandler("remote-pi stop");
-        await stop("", makeMockCtx());
-      }
-      attachBridgeSpy.mockRestore();
     }
   });
 
