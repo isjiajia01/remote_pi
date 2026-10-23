@@ -1,3 +1,4 @@
+import 'package:app/config/features.dart';
 import 'package:app/ui/control/control_page.dart';
 import 'package:app/ui/control/viewmodels/control_viewmodel.dart';
 import 'package:app/ui/chat/quick_actions/viewmodels/quick_actions_viewmodel.dart';
@@ -219,6 +220,10 @@ GoRouter buildRouter(
       if (state.uri.path == '/sync-required' || state.uri.path == '/boot') {
         return target;
       }
+      if (!perchFullFeatures &&
+          {'/timeline', '/control'}.contains(state.uri.path)) {
+        return '/home';
+      }
       return null;
     },
     routes: [
@@ -246,9 +251,11 @@ GoRouter buildRouter(
       // which preserves native back/swipe. The detail branch only renders
       // on tablet, where it reacts to [SessionSelection].
       ShellRoute(
-        builder: (ctx, st, child) => ViewmodelProvider<TimelineViewModel>(
-          child: MainTabs(location: st.uri.path, child: child),
-        ),
+        builder: (ctx, st, child) => !perchFullFeatures
+            ? MainTabs(location: st.uri.path, child: child)
+            : ViewmodelProvider<TimelineViewModel>(
+                child: MainTabs(location: st.uri.path, child: child),
+              ),
         routes: [
           StatefulShellRoute(
             builder: (ctx, st, navShell) => navShell,

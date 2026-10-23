@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:app/ui/core/interaction_feedback.dart';
 
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:app/ui/core/widgets/widgets.dart';
@@ -59,6 +60,7 @@ class _PairingFlowState extends State<PairingFlow> {
   final _scanner = MobileScannerController();
   bool _scannerActive = true;
   bool _postPairStarted = false;
+  PairingState? _feedbackState;
 
   @override
   void dispose() {
@@ -95,6 +97,16 @@ class _PairingFlowState extends State<PairingFlow> {
   Widget build(BuildContext context) {
     final vm = context.watch<PairingViewModel>();
     final state = vm.state;
+    if (!identical(state, _feedbackState)) {
+      final previous = _feedbackState;
+      _feedbackState = state;
+      if (previous != null &&
+          (state is PairingPaired || state is PairingError)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) InteractionFeedback.result();
+        });
+      }
+    }
     if (state is PairingPaired && !_postPairStarted) {
       _postPairStarted = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {

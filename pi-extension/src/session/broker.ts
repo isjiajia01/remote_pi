@@ -1,5 +1,6 @@
+import { fullFeatures } from "../features.js";
 import { PerchBrokerReads } from "./perch_reads.js";
-import type { PerchClientMessage } from "../protocol/perch.js";
+import { perchError, type PerchClientMessage } from "../protocol/perch.js";
 import type { Server, Socket } from "node:net";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, posix, win32 } from "node:path";
@@ -209,7 +210,7 @@ interface SystemBody {
 
 export class Broker {
   private readonly peers = new Map<string, PeerConn>();
-  private readonly perchReads = new PerchBrokerReads(() => this.localPeerInfos());
+  private readonly perchReads = fullFeatures() ? new PerchBrokerReads(() => this.localPeerInfos()) : null;
   private readonly auditPath?: string;
   private readonly onRouted?: BrokerOptions["onRouted"];
   private readonly server: Server;
@@ -285,7 +286,7 @@ export class Broker {
   }
 
   async close(): Promise<void> {
-    this.perchReads.close();
+    this.perchReads?.close();
     for (const p of this.peers.values()) p.socket.destroy();
     this.peers.clear();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -381,7 +382,7 @@ export class Broker {
     // connection, so a rejected replacement cannot drop a healthy peer.
     if (identity.replaceAddress) this._dropPeerAt(identity.replaceAddress);
     this.peers.set(identity.address, conn);
-    this.perchReads.record({ type: "peer_joined", agent: { cwd: conn.cwd, name: conn.name, address: conn.address } });
+    this.perchReads?.record({ type: "peer_joined", agent: { cwd: conn.cwd, name: conn.name, address: conn.address } });
 
     // `name_assigned` doubles as the compat alias: for a legacy peer it equals
     // `address_assigned` (cwd empty → address == name), so old clients that read
@@ -502,7 +503,7 @@ export class Broker {
     if (!existing) return;
     this.peers.delete(address);
     existing.reads.abort();
-    this.perchReads.record({ type: "peer_left", agent: { cwd: existing.cwd, name: existing.name, address } });
+    this.perchReads?.record({ type: "peer_left", agent: { cwd: existing.cwd, name: existing.name, address } });
     // The old socket's close event may arrive after the replacement has been
     // inserted. Clear its address so it cannot delete the replacement.
     existing.address = "";
@@ -514,7 +515,7 @@ export class Broker {
     if (!conn.address) return;
     if (this.peers.get(conn.address) !== conn) return;
     this.peers.delete(conn.address);
-    this.perchReads.record({ type: "peer_left", agent: { cwd: conn.cwd, name: conn.name, address: conn.address } });
+    this.perchReads?.record({ type: "peer_left", agent: { cwd: conn.cwd, name: conn.name, address: conn.address } });
     this._broadcastSystem({ type: "peer_left", name: conn.address, address: conn.address }, conn.address);
   }
 
@@ -617,6 +618,13 @@ export class Broker {
     if (body.type === "perch_request") {
       const peer = this.peers.get(env.from);
       if (!peer) return;
+      if (!this.perchReads) {
+        try {
+          peer.socket.write(serialize({ from: BROKER_NAME, to: env.from, id: uuidv7(), re: env.id,
+            body: perchError((body as { id?: string }).id ?? "", "unsupported", "Unavailable in Perch minimal mode") }));
+        } catch { /* peer disconnected */ }
+        return;
+      }
       void this.perchReads.read(body as PerchClientMessage, peer.reads.signal).then((result) => {
         if (this.peers.get(env.from) !== peer || peer.reads.signal.aborted) return;
         try {
@@ -676,7 +684,7 @@ export class Broker {
      */
     via: "uds" | "relay" = "uds",
   ): Promise<void> {
-    this.perchReads.record({ type: "routed", id: env.id, re: env.re, from: env.from,
+    this.perchReads?.record({ type: "routed", id: env.id, re: env.re, from: env.from,
       to: env.to, delivered, ack_status: ackStatus, via });
     if (!this.auditPath) return;
     const line = JSON.stringify({

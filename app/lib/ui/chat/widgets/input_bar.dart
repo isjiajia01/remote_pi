@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:app/ui/core/interaction_feedback.dart';
 
 import 'package:app/data/images/image_picker_service.dart';
 import 'package:app/domain/session_state.dart';
@@ -155,8 +156,15 @@ class _InputBarState extends State<InputBar> {
     // Plan/30 — an attached image makes an empty-caption send valid.
     final hasImage = widget.attachment?.hasImage ?? false;
     if (text.isEmpty && !hasImage) return;
+    InteractionFeedback.action();
     _controller.clear();
     widget.onSend(text);
+  }
+
+  void _cancelTurn() {
+    if (widget.disabled || widget.onCancel == null) return;
+    InteractionFeedback.action();
+    widget.onCancel!();
   }
 
   void _editQueued(QueuedMsg item) {
@@ -443,7 +451,7 @@ class _InputBarState extends State<InputBar> {
                       hasContent: hasContent,
                       disabled: widget.disabled,
                       onSendText: _submit,
-                      onCancel: widget.onCancel,
+                      onCancel: widget.onCancel == null ? null : _cancelTurn,
                       onStartAudio: widget.onStartAudio,
                       voiceEnabled: widget.voice != null,
                       voiceUnsupported: voiceUnsupported,
@@ -454,7 +462,7 @@ class _InputBarState extends State<InputBar> {
                     ),
                     if (showInlineStop) ...[
                       const SizedBox(width: 8),
-                      _InlineStopButton(onTap: widget.onCancel!),
+                      _InlineStopButton(onTap: _cancelTurn),
                     ],
                   ],
                 ),

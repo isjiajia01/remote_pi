@@ -1,3 +1,4 @@
+import 'package:app/config/features.dart';
 import 'package:app/data/preferences/preferences.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/ui/core/themes/themes.dart';
@@ -99,16 +100,18 @@ class SettingsPage extends StatelessWidget {
                     ),
                   ],
                 ),
-                const _SectionHeader('Control'),
-                _Group(
-                  children: [
-                    _SettingsRow(
-                      icon: LucideIcons.slidersHorizontal,
-                      label: 'Control this Mac',
-                      onTap: () => context.push('/control'),
-                    ),
-                  ],
-                ),
+                if (perchFullFeatures) ...[
+                  const _SectionHeader('Control'),
+                  _Group(
+                    children: [
+                      _SettingsRow(
+                        icon: LucideIcons.slidersHorizontal,
+                        label: 'Control this Mac',
+                        onTap: () => context.push('/control'),
+                      ),
+                    ],
+                  ),
+                ],
                 const _SectionHeader('Relay'),
                 _Group(
                   children: [

@@ -1,3 +1,4 @@
+import 'package:app/config/features.dart';
 import 'package:app/domain/contracts/control_client.dart';
 import 'package:app/data/repositories/control_repository.dart';
 import 'package:app/ui/control/viewmodels/control_viewmodel.dart';
@@ -114,12 +115,14 @@ Future<void> setupDependencies() async {
     return pk == null ? null : base64Encode(pk);
   }
 
-  _injector.addService<ApprovalService>(
-    () => ApprovalService(_injector.get<ConnectionManager>(), owner),
-  );
-  _injector.addService<PushService>(
-    () => PushService(_injector.get<ConnectionManager>(), owner),
-  );
+  if (perchFullFeatures) {
+    _injector.addService<ApprovalService>(
+      () => ApprovalService(_injector.get<ConnectionManager>(), owner),
+    );
+    _injector.addService<PushService>(
+      () => PushService(_injector.get<ConnectionManager>(), owner),
+    );
+  }
 
   // Plan 29 — on-device speech-to-text. Singleton: it owns a broadcast
   // sound-level stream that must survive across chat navigations; the
@@ -146,22 +149,24 @@ Future<void> setupDependencies() async {
     () => HomeReadRepository(_injector.get<LocalBoxes>()),
   );
 
-  _injector.addRepository<TimelineReader>(
-    () => TimelineRepository(
-      _injector.get<ConnectionManager>(),
-      _injector.get<PairingStorage>(),
-    ),
-  );
-  _injector.addViewModel<TimelineViewModel>(
-    () => TimelineViewModel(_injector.get<TimelineReader>()),
-  );
+  if (perchFullFeatures) {
+    _injector.addRepository<TimelineReader>(
+      () => TimelineRepository(
+        _injector.get<ConnectionManager>(),
+        _injector.get<PairingStorage>(),
+      ),
+    );
+    _injector.addViewModel<TimelineViewModel>(
+      () => TimelineViewModel(_injector.get<TimelineReader>()),
+    );
 
-  _injector.addRepository<ControlClient>(
-    () => ControlRepository(_injector.get<ConnectionManager>()),
-  );
-  _injector.addViewModel<ControlViewModel>(
-    () => ControlViewModel(_injector.get<ControlClient>()),
-  );
+    _injector.addRepository<ControlClient>(
+      () => ControlRepository(_injector.get<ConnectionManager>()),
+    );
+    _injector.addViewModel<ControlViewModel>(
+      () => ControlViewModel(_injector.get<ControlClient>()),
+    );
+  }
 
   // Repositories
   _injector.addRepository<IActionsRepository>(
@@ -178,7 +183,7 @@ Future<void> setupDependencies() async {
       _injector.get<ConnectionManager>(),
       _injector.get<Preferences>(),
       _injector.get<PairingStorage>(),
-      approvals: _injector.get<ApprovalService>(),
+      approvals: perchFullFeatures ? _injector.get<ApprovalService>() : null,
     ),
   );
   _injector.addViewModel<HomeViewModel>(

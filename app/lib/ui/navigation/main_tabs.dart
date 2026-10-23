@@ -1,3 +1,5 @@
+import 'package:app/config/features.dart';
+import 'package:app/ui/core/interaction_feedback.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:app/ui/timeline/viewmodels/timeline_viewmodel.dart';
 import 'package:flutter/cupertino.dart';
@@ -30,6 +32,7 @@ class _MainTabsState extends State<MainTabs> with WidgetsBindingObserver {
   }
 
   void _updateActivity() {
+    if (!perchFullFeatures) return;
     context.read<TimelineViewModel>().setActive(
       _foreground && widget.location == '/timeline',
     );
@@ -48,7 +51,7 @@ class _MainTabsState extends State<MainTabs> with WidgetsBindingObserver {
     });
     final index = switch (widget.location) {
       '/timeline' => 1,
-      '/settings' => 2,
+      '/settings' => perchFullFeatures ? 2 : 1,
       _ => 0,
     };
     return Scaffold(
@@ -60,17 +63,25 @@ class _MainTabsState extends State<MainTabs> with WidgetsBindingObserver {
         activeColor: context.colors.accent,
         inactiveColor: context.colors.ink2,
         border: Border(top: BorderSide(color: context.colors.hairline)),
-        onTap: (index) =>
-            context.go(['/home', '/timeline', '/settings'][index]),
+        onTap: (next) {
+          if (next == index) return;
+          InteractionFeedback.selection();
+          context.go(
+            (perchFullFeatures
+                ? ['/home', '/timeline', '/settings']
+                : ['/home', '/settings'])[next],
+          );
+        },
         items: const [
           BottomNavigationBarItem(
             icon: Icon(LucideIcons.bot, size: 22),
             label: 'Agents',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(LucideIcons.activity, size: 22),
-            label: 'Timeline',
-          ),
+          if (perchFullFeatures)
+            BottomNavigationBarItem(
+              icon: Icon(LucideIcons.activity, size: 22),
+              label: 'Timeline',
+            ),
           BottomNavigationBarItem(
             icon: Icon(LucideIcons.settings, size: 22),
             label: 'Settings',

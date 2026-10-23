@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:app/config/features.dart';
 import 'package:app/data/approvals/approval_service.dart';
 import 'package:app/data/push/push_service.dart';
 import 'package:app/config/dependencies.dart';
@@ -24,7 +25,7 @@ void main() async {
   // Eagerly construct the SSOT writer so it's consuming the channel from boot
   // (messages can arrive before the chat screen mounts).
   injector.get<SyncService>();
-  injector.get<ApprovalService>();
+  if (perchFullFeatures) injector.get<ApprovalService>();
   runApp(const RemotePiApp());
 }
 
@@ -84,12 +85,14 @@ class _RemotePiAppState extends State<RemotePiApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _router.routeInformationProvider.addListener(_onRouteChanged);
-    _pushSub = injector.get<PushService>().taps.listen(
-      (payload) => unawaited(_openNotification(payload)),
-    );
+    if (perchFullFeatures) {
+      _pushSub = injector.get<PushService>().taps.listen(
+        (payload) => unawaited(_openNotification(payload)),
+      );
+    }
     // Start after the first frame; native retains taps until ready.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(injector.get<PushService>().start());
+      if (perchFullFeatures) unawaited(injector.get<PushService>().start());
     });
   }
 
@@ -114,7 +117,7 @@ class _RemotePiAppState extends State<RemotePiApp> with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         meshSync.startPolling();
-        unawaited(injector.get<PushService>().start());
+        if (perchFullFeatures) unawaited(injector.get<PushService>().start());
         // ignore: unawaited_futures
         meshSync.pullOnDemand();
       case AppLifecycleState.inactive:

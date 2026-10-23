@@ -1,3 +1,4 @@
+import 'package:app/config/features.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:app/ui/navigation/main_tabs.dart';
 import 'package:app/ui/timeline/states/timeline_state.dart';
@@ -12,7 +13,49 @@ import 'timeline_viewmodel_test.dart' show FakeTimelineReader, golden;
 
 void main() {
   testWidgets(
+    'minimal offers Agents and Settings without a timeline provider',
+    (tester) async {
+      if (perchFullFeatures) return;
+      final router = GoRouter(
+        initialLocation: '/home',
+        routes: [
+          ShellRoute(
+            builder: (_, state, child) =>
+                MainTabs(location: state.uri.path, child: child),
+            routes: [
+              GoRoute(
+                path: '/home',
+                builder: (_, _) => const Text('Agents body'),
+              ),
+              GoRoute(
+                path: '/settings',
+                builder: (_, _) => const Text('Settings body'),
+              ),
+            ],
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        MaterialApp.router(theme: buildLightTheme(), routerConfig: router),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Timeline'), findsNothing);
+      expect(
+        tester
+            .widget<CupertinoTabBar>(find.byType(CupertinoTabBar))
+            .items
+            .length,
+        2,
+      );
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+      expect(find.text('Settings body'), findsOneWidget);
+    },
+  );
+  testWidgets(
     'three Cupertino tabs retain cursor and cache; background stops polling',
+    skip: !perchFullFeatures,
     (tester) async {
       final reader = FakeTimelineReader();
       var creations = 0;

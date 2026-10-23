@@ -1,3 +1,4 @@
+import 'package:app/ui/core/interaction_feedback.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:app/ui/core/widgets/widgets.dart';
 import 'package:app/ui/home/states/home_state.dart';
@@ -42,6 +43,11 @@ class HomeFilterTabs extends StatelessWidget {
     String count,
   ) {
     final selected = filter == value;
+    void select() {
+      if (!selected) InteractionFeedback.selection();
+      onSelected(value);
+    }
+
     final c = context.colors;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
@@ -49,14 +55,16 @@ class HomeFilterTabs extends StatelessWidget {
         selected: selected,
         button: true,
         label: '$label $count',
-        onTap: () => onSelected(value),
+        onTap: select,
         child: ExcludeSemantics(
           child: CupertinoButton(
             minimumSize: const Size(0, 44),
             padding: EdgeInsets.zero,
-            onPressed: () => onSelected(value),
+            onPressed: select,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 150),
               curve: Curves.easeOut,
               height: 32,
               alignment: Alignment.center,

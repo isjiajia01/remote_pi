@@ -51,6 +51,7 @@ import {
   conditionalRemovePeer,
   type PeerRecord,
 } from "./pairing/storage.js";
+import { fullFeatures, extraCommand } from "./features.js";
 import { MeshClient } from "./mesh/client.js";
 import {
   canonicalizeEd25519PublicKey,
@@ -187,7 +188,7 @@ function _perchPush(): PerchPush {
   }
   return _push.service;
 }
-const _toolApprovals = new ToolApprovals({
+const _toolApprovals = fullFeatures() ? new ToolApprovals({
   owners: () => [..._activePeers.keys()],
   authorized: async (owner) => {
     const channel = _activePeers.get(owner);
@@ -198,7 +199,7 @@ const _toolApprovals = new ToolApprovals({
     void _perchPush().notify(owner, { kind: "approval_request", event_id: request.id,
       session_id: request.session_id, tool_call_id: request.tool_call_id });
   },
-});
+}) : null;
 let _peerShort = "";  // shortid of the most recently attached peer (UX hint only)
 
 const REMOTE_PI_RECEIVED_IMAGE_TYPE = "remote-pi:received-image";
@@ -758,6 +759,7 @@ async function _deliverImageUserMessage(
  * No-op until the relay WS + cached identity are both present.
  */
 function _attachBridgeIfReady(): void {
+  if (!fullFeatures()) return;
   if (!_meshNode || !_relay || !_relayUrl || !_cachedEd25519) return;
   // A newly-created SelfRevoke producer must publish its own initial verified
   // or fallback snapshot before any retained topology is allowed to attach.
@@ -1262,7 +1264,7 @@ function _attachPeerChannel(appPeerId: string, channel: PlainPeerChannel): void 
 /** Detaches a single owner's channel + removes it from the map. Used by
  *  `_onPeerDisconnect`, `_cmdRevoke`, and the SelfRevoke callback. */
 function _detachPeerChannel(appPeerId: string): void {
-  _toolApprovals.cancelOwner(appPeerId);
+  _toolApprovals?.cancelOwner(appPeerId);
   const ch = _activePeers.get(appPeerId);
   if (!ch) return;
   try { ch.detach(); } catch { /* best-effort */ }
@@ -1419,7 +1421,7 @@ async function _findKnownPeer(appPeerIdStd: string): Promise<PeerRecord | null> 
  * by omitting the reason; app falls back to ping miss naturally.
  */
 function _goIdle(byeReason?: import("./protocol/types.js").ByeReason): void {
-  _toolApprovals.cancelAll();
+  _toolApprovals?.cancelAll();
   _rootLifecycleGeneration += 1;
   _relayLifecycleGeneration += 1;
 
@@ -1495,7 +1497,7 @@ function _onRelayClose(closedRelay: RelayClient): void {
   if (_relay !== closedRelay) return; // delayed close from a replaced Relay
   if (_state === "idle") return;  // already torn down (e.g. /remote-pi stop)
 
-  _toolApprovals.cancelAll();
+  _toolApprovals?.cancelAll();
   _relayLifecycleGeneration += 1;
   _stopAutoListener?.();
   _stopAutoListener = null;
@@ -2117,19 +2119,19 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   // agent-network skill on first load. resources_discover lets Pi find it.
   try {
     ensureGlobalDirs();
-    _deployAgentNetworkSkill();
+    if (fullFeatures()) _deployAgentNetworkSkill();
   } catch { /* best-effort init */ }
 
   // Seed the global-pairings cache from peers.json so the footer can show
   // 🟢/🟡 correctly the moment the relay is up (no race with first refresh).
   _refreshPairingsCache();
 
-  pi.on("resources_discover", () => ({ skillPaths: [skillsDir()] }));
+  if (fullFeatures()) pi.on("resources_discover", () => ({ skillPaths: [skillsDir()] }));
 
   // Plano 20: agent_send + agent_request tools so the LLM can drive the
   // session network natively. Getter captures `_meshNode` live so the
   // tool always sees the current state.
-  registerAgentTools(pi, () => _meshNode?.peer() ?? null);
+  if (fullFeatures()) registerAgentTools(pi, () => _meshNode?.peer() ?? null);
   _registerReceivedImageRenderer(pi);
 
   // Received-image preview entries are for local TUI display only. Pi's custom
@@ -2142,8 +2144,8 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
 
   // Local, explicit opt-in only. The SDK awaits this hook before execute,
   // including agent-core nested calls. Malformed policies fail closed.
-  pi.on("tool_call", async (event, ctx) => {
-    try { return await _toolApprovals.gate(event, loadApprovalConfig(ctx.cwd), ctx.signal); }
+  if (fullFeatures()) pi.on("tool_call", async (event, ctx) => {
+    try { return await _toolApprovals?.gate(event, loadApprovalConfig(ctx.cwd), ctx.signal); }
     catch { return { block: true, reason: "Invalid or unreadable Perch approval policy" }; }
   });
 
@@ -2281,8 +2283,8 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   });
 
   pi.on("agent_end", () => {
-    _toolApprovals.cancelAll();
-    if (_pushRunId) {
+    _toolApprovals?.cancelAll();
+    if (fullFeatures() && _pushRunId) {
       const event = { kind: "session_finished" as const, event_id: _pushRunId, session_id: _pushSessionId };
       _pushRunId = null;
       // Registered devices may be offline; current pairing, rather than a live channel, authorizes push.
@@ -2381,7 +2383,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   // New session. Fires on startup/new/fork/reload/resume; the ctx is always
   // bound to the current session.
   pi.on("session_start", (_event, ctx) => {
-    _toolApprovals.resetSession();
+    _toolApprovals?.resetSession();
     _pushSessionId = randomUUID();
     _pushRunId = null;
     _lastEventCtx = ctx;
@@ -2480,7 +2482,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   // (e.g. shutdown lands mid-`_cmdRoot`) tears down without throwing.
   pi.on("session_shutdown", async () => {
     _pushRunId = null;
-    _toolApprovals.resetSession();
+    _toolApprovals?.resetSession();
     // Revoke async authority synchronously, before any teardown await. `_disposed`
     // blocks the outgoing continuation immediately; the root and candidate
     // generations keep queued work stale even if a same-module session_start
@@ -2557,12 +2559,16 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
         "cron", "cron add", "cron list", "cron remove", "cron enable", "cron disable", "cron run", "cron log",
         "install", "uninstall",  // service install (plan/26 W3)
       ]
-        .filter((o) => o.startsWith(prefix))
+        .filter((o) => o.startsWith(prefix) && (fullFeatures() || !extraCommand(o)))
         .map((o) => ({ value: o, label: o }));
     },
     handler: async (args, ctx) => {
       _lastCtx = ctx;
       const sub = args.trim();
+      if (!fullFeatures() && extraCommand(sub)) {
+        ctx.ui.notify("Unavailable in Perch minimal mode", "warning");
+        return;
+      }
       if      (sub === "")                       { await _cmdRoot(ctx); }
       else if (sub === "setup")                  { await _cmdSetup(ctx); }
       else if (sub === "status")                 { _cmdStatus(ctx); }
@@ -2608,6 +2614,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   pi.registerCommand("remote-pi config", { description: "Show the effective relay URL and where it came from", handler: async (_, ctx) => { _lastCtx = ctx; _cmdConfig(ctx); } });
   pi.registerCommand("remote-pi relay", { description: "Relay control: start | stop | status | url <http(s) url> (no arg toggles)", handler: async (args, ctx) => { _lastCtx = ctx; await _cmdRelay(args.trim(), ctx); } });
 
+  if (fullFeatures()) {
   // Plan/25 Wave D
   pi.registerCommand("remote-pi peers", {
     description: "List local + cross-PC mesh peers, grouped by PC label",
@@ -2638,6 +2645,8 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   // Service install / uninstall (plan/26 W3)
   pi.registerCommand("remote-pi install",   { description: "Install pi-supervisord as a system service + link the remote-pi CLI (systemd/launchd/Task Scheduler; Windows prompts for admin)", handler: async (_, ctx) => { _lastCtx = ctx; _cmdInstall(ctx, { linkCli: true }); } });
   pi.registerCommand("remote-pi uninstall", { description: "Remove the pi-supervisord system service + the CLI shims (daemons registry preserved; Windows prompts for admin)", handler: async (_, ctx) => { _lastCtx = ctx; _cmdUninstall(ctx, { linkCli: true }); } });
+
+  }
 
   // Auto-init now runs from the session_start handler (above), AFTER the
   // SDK calls bindCore(). The original setTimeout(0) here fired before bindCore
@@ -4196,6 +4205,7 @@ function _scheduleMeshMessageDrain(): void {
 }
 
 function _deliverMeshMessageToAgent(env: MeshEnvelope): void {
+  if (!fullFeatures()) return;
   const bodyText = typeof env.body === "string" ? env.body : JSON.stringify(env.body);
   const toolCallId = `mesh_${env.id}`;
   _broadcastToActive({
@@ -4306,7 +4316,7 @@ async function _cmdJoin(ctx: Pick<ExtensionContext, "ui" | "cwd">): Promise<void
     // Real agent-to-agent message (SessionPeer already correlated replies via
     // env.re before this point). Show it in the app's TOOL timeline and wake
     // the agent as a CUSTOM message — never as the user's own message.
-    _deliverMeshMessageToAgent(env);
+    if (fullFeatures()) _deliverMeshMessageToAgent(env);
   });
 
   // After failover (leader died, we re-elected): the new broker's peers map
@@ -4428,6 +4438,10 @@ export function _routeClientMessageFrom(
   msg: ClientMessage,
   ctx: Pick<ExtensionContext, "abort">,
 ): void {
+  if (!fullFeatures() && msg.type.startsWith("perch_")) {
+    sender.send(perchError("id" in msg ? String(msg.id) : "", "unsupported", "Unavailable in Perch minimal mode"));
+    return;
+  }
   if (msg.type === "perch_push_register" || msg.type === "perch_push_unregister") {
     const owner = [..._activePeers].find(([, channel]) => channel === sender)?.[0];
     if (!owner) { sender.send(perchError(msg.id, "unauthorized", "Sender is not a paired Owner")); return; }
@@ -4439,7 +4453,7 @@ export function _routeClientMessageFrom(
   }
   if (msg.type === "perch_tool_approval_decision") {
     const owner = [..._activePeers].find(([, channel]) => channel === sender)?.[0];
-    if (owner) void _toolApprovals.decide(owner, msg);
+    if (owner) void _toolApprovals?.decide(owner, msg);
     return;
   }
   if (msg.type === "perch_capabilities_get" || msg.type === "perch_request") {
@@ -4467,7 +4481,7 @@ export function _routeClientMessageFrom(
     return;
   }
   if (msg.type === "cancel") {
-    _toolApprovals.cancelAll();
+    _toolApprovals?.cancelAll();
     try {
       const aborted = _abortCurrentTurn(ctx);
       if (!aborted) {
@@ -4776,7 +4790,7 @@ function _handleSessionSync(
  * a new session is global state, so every owner must see the reset.
  */
 function _resetSessionForNew(inReplyTo: string): void {
-  _toolApprovals.resetSession();
+  _toolApprovals?.resetSession();
   _messageBuffer = [];
   _pendingSteers = [];
   _lastConsumedSteerText = null;
@@ -5205,6 +5219,10 @@ export async function probeListPeers(
 
 if (_isDirectRun()) {
   const [, , subcmd, ...cliArgs] = process.argv;
+  if (!fullFeatures() && (extraCommand(subcmd ?? "") || subcmd === "restart-supervisor" || subcmd === "claude")) {
+    console.error("Unavailable in Perch minimal mode");
+    process.exit(1);
+  }
   if (subcmd === "devices" || subcmd === "list") {
     const peers = (await listPeers())
       .map(_inspectPeerRecord)

@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:app/ui/core/interaction_feedback.dart';
 import 'package:app/ui/core/themes/themes.dart';
 
 enum AppButtonStyle { primary, secondary, destructive }
@@ -78,32 +79,46 @@ class _AppButtonState extends State<AppButton> {
       onPointerDown: enabled ? (_) => _setPressed(true) : null,
       onPointerUp: (_) => _setPressed(false),
       onPointerCancel: (_) => _setPressed(false),
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOut,
-        opacity: !enabled
-            ? .4
-            : _pressed
-            ? .85
+      child: AnimatedScale(
+        scale: _pressed && enabled && !MediaQuery.disableAnimationsOf(context)
+            ? .97
             : 1,
-        child: SizedBox(
-          width: widget.fullWidth ? double.infinity : null,
-          height: primary ? 50 : 44,
-          child: CupertinoButton(
-            onPressed: widget.onPressed,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            color: primary ? c.accent : null,
-            disabledColor: primary ? c.accent : c.surface,
-            borderRadius: BorderRadius.circular(14),
-            pressedOpacity: 1,
-            child: Text(
-              widget.label,
-              style: context.typo.headline.copyWith(
-                color: primary
-                    ? c.onAccent
-                    : widget.style == AppButtonStyle.destructive
-                    ? c.error
-                    : c.accent,
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 140),
+        curve: Curves.easeOutCubic,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOut,
+          opacity: !enabled
+              ? .4
+              : _pressed
+              ? .85
+              : 1,
+          child: SizedBox(
+            width: widget.fullWidth ? double.infinity : null,
+            height: primary ? 50 : 44,
+            child: CupertinoButton(
+              onPressed: !enabled
+                  ? null
+                  : () {
+                      InteractionFeedback.action();
+                      widget.onPressed!();
+                    },
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              color: primary ? c.accent : null,
+              disabledColor: primary ? c.accent : c.surface,
+              borderRadius: BorderRadius.circular(14),
+              pressedOpacity: 1,
+              child: Text(
+                widget.label,
+                style: context.typo.headline.copyWith(
+                  color: primary
+                      ? c.onAccent
+                      : widget.style == AppButtonStyle.destructive
+                      ? c.error
+                      : c.accent,
+                ),
               ),
             ),
           ),
