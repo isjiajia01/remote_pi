@@ -12,7 +12,7 @@ class StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final (label, background, foreground) = switch (state) {
-      StatusPillState.working => ('Working', c.workingSoft, c.working),
+      StatusPillState.working => ('Working', c.workingSoft, c.workingText),
       StatusPillState.offline => ('Offline', c.surface2, c.ink2),
       StatusPillState.error => ('Error', c.errorSoft, c.error),
     };

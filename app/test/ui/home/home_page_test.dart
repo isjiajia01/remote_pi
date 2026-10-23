@@ -163,7 +163,7 @@ void main() {
         tester,
         _Home(const HomeList(peers: [mac], relay: HomeRelay.connected)),
       );
-      expect(find.text('MAC'), findsOneWidget);
+      expect(find.text('Mac'), findsOneWidget);
       expect(find.text('No agents running on Mac'), findsOneWidget);
       expect(find.text('Open Pi and run /remote-pi'), findsOneWidget);
       expect(find.byType(AgentRow), findsNothing);
@@ -175,7 +175,7 @@ void main() {
     final vm = _Home(ready(filter: HomeFilter.working));
     await _pumpHome(tester, vm);
     expect(find.text('Nothing working right now'), findsOneWidget);
-    expect(find.text('Working'), findsOneWidget);
+    expect(find.byType(HomeFilterTabs), findsNothing);
     await tester.tap(find.text('Show all'));
     await tester.pumpAndSettle();
     expect(find.byType(AgentRow), findsOneWidget);
@@ -192,7 +192,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Last known · as of 2m'), findsWidgets);
-      expect(find.text('–'), findsOneWidget);
+      expect(find.text('Last known'), findsOneWidget);
       final dot = tester.widget<StatusDot>(find.byType(StatusDot));
       expect(dot.status, AgentStatus.stale);
       expect(dot.lastKnownStatus, AgentStatus.online);
@@ -206,12 +206,9 @@ void main() {
   ) async {
     final vm = _Home(ready());
     await _pumpHome(tester, vm);
-    await tester.tap(find.bySemanticsLabel('Group agents'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Group by project'));
-    await tester.pumpAndSettle();
-    expect((vm.state as HomeList).grouping, HomeGrouping.project);
-    expect(find.text('PROJECT'), findsOneWidget);
+    expect(find.bySemanticsLabel('Group agents'), findsNothing);
+    expect(find.bySemanticsLabel('Settings'), findsOneWidget);
+    expect((vm.state as HomeList).grouping, HomeGrouping.machine);
     expect(find.text('Mac'), findsOneWidget);
   });
   testWidgets('refresh control requests room recheck', (tester) async {

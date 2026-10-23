@@ -27,7 +27,7 @@ class _PeerListItemState extends State<PeerListItem> {
 
   Future<bool> _remove() async {
     if (_removing) return false;
-    setState(() => _removing = true);
+    _removing = true;
     try {
       return await widget.onRevokeRequested();
     } finally {
@@ -53,6 +53,41 @@ class _PeerListItemState extends State<PeerListItem> {
       'Dec',
     ];
     return 'Paired ${date.day} ${months[date.month - 1]}';
+  }
+
+  void _showActions() {
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        title: Text(
+          (widget.peer.nickname?.isNotEmpty ?? false)
+              ? widget.peer.nickname!
+              : widget.peer.sessionName,
+        ),
+        message: Text('${widget.status.label} · $_pairedDate'),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(sheet);
+              widget.onEditNickname();
+            },
+            child: const Text('Rename'),
+          ),
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () {
+              Navigator.pop(sheet);
+              _remove();
+            },
+            child: const Text('Remove this Mac'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(sheet),
+          child: const Text('Cancel'),
+        ),
+      ),
+    );
   }
 
   @override
@@ -91,7 +126,7 @@ class _PeerListItemState extends State<PeerListItem> {
           Expanded(
             child: CupertinoButton(
               padding: const EdgeInsets.fromLTRB(16, 12, 0, 12),
-              onPressed: _removing ? null : widget.onEditNickname,
+              onPressed: _removing ? null : _showActions,
               child: Row(
                 children: [
                   StatusDot(status: widget.status),
@@ -106,11 +141,12 @@ class _PeerListItemState extends State<PeerListItem> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          peer.sessionName,
-                          style: context.typo.monoSmall,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        if (name != peer.sessionName)
+                          Text(
+                            peer.sessionName,
+                            style: context.typo.monoSmall,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         const SizedBox(height: 4),
                         Text(
                           '${widget.status.label} · $_pairedDate',
@@ -135,12 +171,12 @@ class _PeerListItemState extends State<PeerListItem> {
             CupertinoButton(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               minimumSize: const Size(44, 44),
-              onPressed: _remove,
+              onPressed: _showActions,
               child: Semantics(
-                label: 'Remove $name',
+                label: 'Manage $name',
                 excludeSemantics: true,
                 child: Text(
-                  'Remove',
+                  'Details',
                   style: context.typo.body.copyWith(
                     color: context.colors.error,
                   ),

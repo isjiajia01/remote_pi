@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Perch: a bird-dot resting on a perch bar">
+  <title>Perch app icon</title>
+  <!-- Full-bleed square; iOS applies its own corner mask. Safe area: everything inside 112..912. -->
+  <rect width="1024" height="1024" fill="#1D5FC4"/>
+  <!-- perch bar -->
+  <rect x="124" y="728" width="776" height="96" rx="48" fill="#F4F2EC"/>
+  <!-- bird body: one circle seated 24px into the bar -->
+  <circle cx="436" cy="490" r="262" fill="#F4F2EC"/>
+  <!-- beak: amber wedge = the product's "working" colour -->
+  <path d="M672 420 L880 506 L672 590 Z" fill="#F2A93B"/>
+  <!-- eye: negative space; vanishes gracefully at 16pt -->
+  <circle cx="548" cy="430" r="40" fill="#1D5FC4"/>
+</svg>

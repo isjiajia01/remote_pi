@@ -78,10 +78,10 @@ void main() {
     'Online is labelled, model/thinking/path/time render and preview is responsive',
     (tester) async {
       await pumpRow(tester);
-      expect(find.text('Online'), findsOneWidget);
-      expect(find.text('Idle'), findsNothing);
+      expect(find.text('Idle'), findsOneWidget);
+      expect(find.text('Online'), findsNothing);
       expect(find.text('sonnet-4.5'), findsOneWidget);
-      expect(find.text('think: low'), findsOneWidget);
+      expect(find.text('Think low'), findsOneWidget);
       expect(find.text('~/project'), findsOneWidget);
       expect(find.text('4m'), findsOneWidget);
       expect(find.text(activity.lastMessagePreview!), findsOneWidget);

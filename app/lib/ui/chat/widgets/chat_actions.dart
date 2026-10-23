@@ -13,7 +13,6 @@ import 'package:app/ui/core/widgets/app_banner.dart';
 import 'confirm_chat_action.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -82,11 +81,13 @@ class ChatContextStrip extends StatefulWidget {
     super.key,
     required this.enabled,
     this.cwd,
+    this.working = false,
     this.model,
     this.thinking,
   });
   final bool enabled;
   final String? cwd;
+  final bool working;
   final String? model;
   final ThinkingLevel? thinking;
   @override
@@ -94,6 +95,37 @@ class ChatContextStrip extends StatefulWidget {
 }
 
 class _ChatContextStripState extends State<ChatContextStrip> {
+  final _workingWatch = Stopwatch();
+  Timer? _workingTimer;
+
+  void _syncWorking() {
+    if (widget.working) {
+      if (!_workingWatch.isRunning) {
+        _workingWatch.reset();
+        _workingWatch.start();
+      }
+      _workingTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      _workingTimer?.cancel();
+      _workingTimer = null;
+      _workingWatch.stop();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _syncWorking();
+  }
+
+  @override
+  void didUpdateWidget(ChatContextStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncWorking();
+  }
+
   QuickActionsViewModel? _vm;
   StreamSubscription<String>? _errors;
   Timer? _dismiss;
@@ -135,6 +167,7 @@ class _ChatContextStripState extends State<ChatContextStrip> {
   void dispose() {
     _errors?.cancel();
     _vm?.removeListener(_trackAction);
+    _workingTimer?.cancel();
     _dismiss?.cancel();
     super.dispose();
   }
@@ -150,43 +183,52 @@ class _ChatContextStripState extends State<ChatContextStrip> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          height: 40,
+          height: 48,
           decoration: BoxDecoration(
             border: Border(bottom: BorderSide(color: context.colors.hairline)),
           ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                _ContextChip(
-                  label:
-                      '${state?.currentModelName ?? widget.model ?? 'Model'} ▾',
-                  busy: busy && state.action == ActionName.modelSet,
-                  onTap: enabled
-                      ? () => showModelPickerSheet(context, vm: vm)
-                      : null,
-                ),
-                const SizedBox(width: 8),
-                _ContextChip(
-                  label:
-                      'thinking: ${(state?.currentThinking ?? widget.thinking)?.wire ?? '—'} ▾',
-                  busy: busy && state.action == ActionName.thinkingSet,
-                  onTap: enabled
-                      ? () => showThinkingPickerSheet(context, vm: vm)
-                      : null,
-                ),
-                if (widget.cwd != null) ...[
-                  const SizedBox(width: 12),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    minimumSize: const Size(44, 40),
-                    onPressed: () =>
-                        Clipboard.setData(ClipboardData(text: widget.cwd!)),
-                    child: Text(widget.cwd!, style: context.typo.monoSmall),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: CupertinoButton(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(44, 44),
+              onPressed: enabled
+                  ? () => showModelPickerSheet(context, vm: vm)
+                  : null,
+              child: Row(
+                children: [
+                  if (busy) ...[
+                    const CupertinoActivityIndicator(radius: 8),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      state?.currentModelName ?? widget.model ?? 'Model',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.typo.footnote,
+                    ),
                   ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Think ${(state?.currentThinking ?? widget.thinking)?.wire ?? '—'}',
+                    style: context.typo.caption.copyWith(
+                      color: context.colors.ink2,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(LucideIcons.chevronDown, size: 16),
+                  if (widget.working) ...[
+                    const SizedBox(width: 12),
+                    Text(
+                      '${_workingWatch.elapsed.inMinutes}:${(_workingWatch.elapsed.inSeconds % 60).toString().padLeft(2, '0')}',
+                      style: context.typo.caption.copyWith(
+                        color: context.colors.workingText,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -198,48 +240,6 @@ class _ChatContextStripState extends State<ChatContextStrip> {
       ],
     );
   }
-}
-
-class _ContextChip extends StatelessWidget {
-  const _ContextChip({required this.label, required this.busy, this.onTap});
-  final String label;
-  final bool busy;
-  final VoidCallback? onTap;
-  @override
-  Widget build(BuildContext context) => CupertinoButton(
-    padding: EdgeInsets.zero,
-    minimumSize: const Size(44, 40),
-    onPressed: onTap,
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: context.colors.surface2,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        children: [
-          if (busy) ...[
-            SizedBox.square(
-              dimension: 12,
-              child: CircularProgressIndicator(
-                strokeWidth: 1.5,
-                color: context.colors.accent,
-              ),
-            ),
-            const SizedBox(width: 6),
-          ],
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 150),
-            child: Text(
-              label,
-              key: ValueKey(label),
-              style: context.typo.monoSmall,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 }
 
 Future<void> showThinkingPickerSheet(

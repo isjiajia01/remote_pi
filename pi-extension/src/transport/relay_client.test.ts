@@ -198,3 +198,18 @@ describe("RelayClient", () => {
     }
   });
 });
+
+describe("RelayClient send backpressure", () => {
+  test("resets the socket instead of queueing past the byte cap", async () => {
+    const client = new RelayClient("ws://x", generateEd25519Keypair());
+    await connectWithAuth(client);
+    const ws = currentWs() as MockWS & { bufferedAmount?: number };
+    const terminate = vi.spyOn(ws, "terminate");
+    ws.bufferedAmount = 1024;
+    client.send("ok");
+    expect(terminate).not.toHaveBeenCalled();
+    ws.bufferedAmount = 64 * 1024 * 1024;
+    expect(() => client.send("late")).toThrow(/backlog/);
+    expect(terminate).toHaveBeenCalledOnce();
+  });
+});

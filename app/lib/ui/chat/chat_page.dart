@@ -22,6 +22,7 @@ import 'package:app/ui/chat/widgets/extension_ui_sheet.dart';
 import 'package:app_settings/app_settings.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -66,6 +67,7 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
+  bool _stopRequested = false;
   String? _voiceHint;
   bool _voicePermission = false;
   Timer? _voiceDismiss;
@@ -92,6 +94,7 @@ class _ChatPageState extends State<ChatPage> {
               ChatContextStrip(
                 enabled: state is ChatReady && !state.readOnly,
                 cwd: vm.activeRoom?.cwd,
+                working: vm.isWorking,
                 model: vm.activeRoom?.model,
                 thinking: vm.activeRoom?.thinking,
               ),
@@ -133,6 +136,19 @@ class _ChatPageState extends State<ChatPage> {
                 ),
               ),
             Expanded(child: _buildBody(context, state, vm)),
+            if (_stopRequested && !vm.isWorking)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    'You stopped this response',
+                    style: context.typo.caption.copyWith(
+                      color: context.colors.ink2,
+                    ),
+                  ),
+                ),
+              ),
             SafeArea(top: false, child: _buildInput(context, state, vm)),
           ],
         ),
@@ -299,6 +315,13 @@ class _ChatPageState extends State<ChatPage> {
             ],
           ),
           actions: [
+            if (room?.cwd != null)
+              TextButton.icon(
+                onPressed: () =>
+                    Clipboard.setData(ClipboardData(text: room!.cwd!)),
+                icon: const Icon(LucideIcons.copy, size: 18),
+                label: const Text('Copy path'),
+              ),
             TextButton(
               onPressed: () => Navigator.of(dCtx).pop(),
               child: Text(
@@ -445,11 +468,18 @@ class _ChatPageState extends State<ChatPage> {
           isPeerOffline ||
           isPresenceOffline,
       streaming: isWorking,
-      onCancel: cancelId != null ? () => vm.cancel(cancelId) : null,
+      onCancel: cancelId != null
+          ? () async {
+              await vm.cancel(cancelId);
+              if (mounted) setState(() => _stopRequested = true);
+            }
+          : null,
       agentName: _roomDisplayName(vm.activeRoom, state, widget.initialTitle),
       disabledPlaceholder:
           state is ChatConnecting || state is ChatReady && state.isConnecting
           ? 'Connecting…'
+          : isOffline || isPeerOffline || isPresenceOffline
+          ? 'Mac is offline — read only'
           : null,
       queuedMessages: isReady ? state.queuedMessages : const [],
       onSetQueued: vm.queueMessage,
@@ -469,6 +499,7 @@ class _ChatPageState extends State<ChatPage> {
           : null,
       onSend: (text) {
         final image = context.read<AttachmentViewModel>().takeImageForSend();
+        setState(() => _stopRequested = false);
         vm.sendMessage(text, image: image);
       },
     );

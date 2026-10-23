@@ -107,12 +107,6 @@ class _PairingFlowState extends State<PairingFlow> {
         });
       }
     }
-    if (state is PairingPaired && !_postPairStarted) {
-      _postPairStarted = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_postPair(state.hostnameHint));
-      });
-    }
     return Padding(
       padding: const EdgeInsets.all(16),
       child: switch (state) {
@@ -135,10 +129,37 @@ class _PairingFlowState extends State<PairingFlow> {
           },
         ),
         PairingPaired() => Center(
-          child: Icon(
-            LucideIcons.check,
-            color: context.colors.online,
-            size: 32,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                LucideIcons.circleCheck,
+                color: context.colors.online,
+                size: 64,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Paired with ${state.hostnameHint ?? state.peer.sessionName}',
+                style: context.typo.title2,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Your Mac is ready. Open agents to see its Pi sessions.',
+                style: context.typo.body,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              PrimaryButton(
+                label: 'Open agents',
+                onPressed: _postPairStarted
+                    ? null
+                    : () {
+                        setState(() => _postPairStarted = true);
+                        unawaited(_postPair(state.hostnameHint));
+                      },
+              ),
+            ],
           ),
         ),
         _ => Column(

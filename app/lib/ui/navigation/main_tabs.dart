@@ -46,6 +46,7 @@ class _MainTabsState extends State<MainTabs> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    if (!perchFullFeatures) return widget.child;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _updateActivity();
     });

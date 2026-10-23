@@ -15,6 +15,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Scaffold, Divider;
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:app/ui/core/interaction_feedback.dart';
 import 'package:provider/provider.dart';
 
 class HomePage extends StatefulWidget {
@@ -95,13 +96,15 @@ class _HomePageState extends State<HomePage> {
                 CupertinoButton(
                   padding: const EdgeInsets.all(10),
                   minimumSize: const Size(44, 44),
-                  onPressed: state is HomeList
-                      ? () => _showGrouping(context, vm, state.grouping)
-                      : null,
+                  onPressed: () {
+                    InteractionFeedback.selection();
+                    context.push('/settings');
+                  },
                   child: Semantics(
-                    label: 'Group agents',
+                    label: 'Settings',
+                    button: true,
                     child: Icon(
-                      LucideIcons.layers,
+                      LucideIcons.settings,
                       size: 22,
                       color: context.colors.ink2,
                     ),
@@ -153,10 +156,45 @@ class _HomePageState extends State<HomePage> {
     final groups = state.groups(normalizeEpk: toStandardB64);
     final children = <Widget>[];
     for (final group in groups) {
-      children.add(
-        AgentSectionHeader(label: group.label, summary: _summary(group, state)),
-      );
-      final rows = <Widget>[];
+      final rows = <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                label: 'Device icon',
+                excludeSemantics: true,
+                child: Text(
+                  machineEmoji(group.peer?.remoteEpk ?? group.key, group.label),
+                  style: const TextStyle(fontSize: 28),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.label,
+                      style: context.typo.headline,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _summary(group, state),
+                      style: context.typo.caption.copyWith(
+                        color: context.colors.ink2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ];
       if (group.items.isEmpty) {
         rows.add(
           HomeNoAgents(
@@ -206,21 +244,21 @@ class _HomePageState extends State<HomePage> {
           group.peer?.remoteEpk == _highlightedEpk && _highlightedEpk != null;
       children.add(
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
           child: AnimatedContainer(
             key: ValueKey('machine-card-${group.key}'),
             duration: Duration(
-              milliseconds: MediaQuery.disableAnimationsOf(context) ? 150 : 250,
+              milliseconds: MediaQuery.disableAnimationsOf(context) ? 0 : 220,
             ),
             curve: Curves.easeInOutCubic,
             decoration: BoxDecoration(
               color: highlighted
                   ? context.colors.surface2
                   : context.colors.surface,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(20),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(20),
               child: Column(children: rows),
             ),
           ),
@@ -241,14 +279,15 @@ class _HomePageState extends State<HomePage> {
     }
     return SliverMainAxisGroup(
       slivers: [
-        SliverToBoxAdapter(
-          child: HomeFilterTabs(
-            filter: state.filter,
-            counts: vm.counts,
-            stale: state.relay != HomeRelay.connected,
-            onSelected: vm.setFilter,
+        if (vm.counts.all > 5)
+          SliverToBoxAdapter(
+            child: HomeFilterTabs(
+              filter: state.filter,
+              counts: vm.counts,
+              stale: state.relay != HomeRelay.connected,
+              onSelected: vm.setFilter,
+            ),
           ),
-        ),
         if (groups.isEmpty && state.filter != HomeFilter.all)
           SliverFillRemaining(
             hasScrollBody: false,
@@ -284,58 +323,13 @@ class _HomePageState extends State<HomePage> {
     final online = group.items
         .where((i) => i.lastKnownStatus == AgentStatus.online)
         .length;
-    if (working > 0 || online > 0) return '$working working · $online online';
+    if (working > 0 || online > 0) {
+      return 'Online · ${group.items.length} agents${working > 0 ? ' · $working working' : ''}';
+    }
     if (group.items.any((i) => i.lastKnownStatus == AgentStatus.checking)) {
       return 'Checking';
     }
     return group.items.isEmpty ? '' : 'Offline';
-  }
-
-  void _showGrouping(
-    BuildContext context,
-    HomeViewModel vm,
-    HomeGrouping grouping,
-  ) {
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (sheetContext) => CupertinoActionSheet(
-        actions: [
-          for (final value in HomeGrouping.values)
-            CupertinoActionSheetAction(
-              onPressed: () {
-                Navigator.of(sheetContext).pop();
-                vm.setGrouping(value);
-              },
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    value == HomeGrouping.machine
-                        ? 'Group by machine'
-                        : 'Group by project',
-                    style: context.typo.body.copyWith(
-                      color: context.colors.accent,
-                    ),
-                  ),
-                  if (grouping == value)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Icon(
-                        LucideIcons.check,
-                        size: 20,
-                        color: context.colors.accent,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheetContext).pop(),
-          child: const Text('Cancel'),
-        ),
-      ),
-    );
   }
 
   static Future<void> _open(
@@ -533,4 +527,31 @@ class HomeNoAgents extends StatelessWidget {
       ],
     ),
   );
+}
+
+const _machineEmojis = [
+  '🖥️',
+  '🧑‍💻',
+  '🚀',
+  '🦊',
+  '🐙',
+  '🌵',
+  '🍀',
+  '🔭',
+  '🧭',
+  '🛰️',
+  '🎧',
+  '🌙',
+];
+
+/// Stable per-device emoji: laptops get 💻, otherwise a hash of the device key.
+String machineEmoji(String key, String label) {
+  final l = label.toLowerCase();
+  if (l.contains('macbook')) return '💻';
+  if (l.contains('mac mini') || l.contains('macmini')) return '🖥️';
+  var h = 0;
+  for (final c in key.codeUnits) {
+    h = (h * 31 + c) & 0x7fffffff;
+  }
+  return _machineEmojis[h % _machineEmojis.length];
 }

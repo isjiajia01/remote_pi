@@ -371,6 +371,11 @@ class SyncService extends Service {
     });
   }
 
+  Timer? _syncInFlight;
+
+  /// Single-flight: at most one `session_sync` outstanding per connection.
+  /// Cleared by the history reply, a channel change, or a 5s safety timeout so
+  /// a lost reply can never block future syncs.
   void requestSync() {
     final ch = _conn.channel;
     if (ch == null || _activeEpk == null) {
@@ -378,6 +383,11 @@ class SyncService extends Service {
       return;
     }
     _pendingSyncRequest = false;
+    if (_syncInFlight?.isActive == true) return;
+    _syncInFlight = Timer(
+      const Duration(seconds: 5),
+      () => _syncInFlight = null,
+    );
     ch.send(SessionSync(id: _newId()));
   }
 
@@ -390,6 +400,8 @@ class SyncService extends Service {
     _cancelAllSendTimers();
     _discardStreamingState();
     _setQueuedMessages(const []);
+    _syncInFlight?.cancel();
+    _syncInFlight = null;
     _setWorking(false);
     await _enqueue(() async {
       if (_activeEpk != epk || _activeRoomId != room) return;
@@ -400,6 +412,8 @@ class SyncService extends Service {
       _indexLoaded = true;
       final idx = _boxes.sessionsIndexBox();
       await idx.delete(LocalBoxes.sessionKey(epk, room));
+      _activityKey = null;
+      _activityWritten = null;
     });
   }
 
@@ -408,6 +422,8 @@ class SyncService extends Service {
   // ---------------------------------------------------------------------------
 
   void _onStatus(ConnectionStatus s) {
+    _syncInFlight?.cancel();
+    _syncInFlight = null;
     _msgSub?.cancel();
     _msgSub = null;
     if (s is StatusOnline) {
@@ -459,8 +475,12 @@ class SyncService extends Service {
       case AgentChunk(:final inReplyTo, :final delta):
         _chunkBuffer.write(delta);
         _chunkReplyTo = inReplyTo;
-        _flushTimer?.cancel();
-        _flushTimer = Timer(const Duration(milliseconds: 16), _flushChunks);
+        // Fixed window: the first chunk arms the timer, later chunks only
+        // append. (Cancel+re-arm was a trailing debounce that starved the UI
+        // under continuous token streams.)
+        if (_flushTimer?.isActive != true) {
+          _flushTimer = Timer(const Duration(milliseconds: 16), _flushChunks);
+        }
         _setWorking(true, replyTo: inReplyTo);
 
       case AgentDone(:final inReplyTo):
@@ -618,6 +638,8 @@ class SyncService extends Service {
         }
 
       case SessionHistory():
+        _syncInFlight?.cancel();
+        _syncInFlight = null;
         // ignore: discarded_futures
         _applyHistory(msg);
 
@@ -986,7 +1008,24 @@ class SyncService extends Service {
     });
   }
 
+  // Last status written to the durable index for (epk, room); lets repeated
+  // working=true (one per streamed chunk) skip the Hive put. Any write with a
+  // preview, a status edge, or an index wipe resets/refreshes it.
+  String? _activityKey;
+  SessionActivity? _activityWritten;
+
   void _setActivity(SessionActivity status, {String? preview}) {
+    final epk = _activeEpk;
+    if (epk != null) {
+      final key = LocalBoxes.sessionKey(epk, _activeRoomId);
+      if (preview == null &&
+          _activityKey == key &&
+          _activityWritten == status) {
+        return;
+      }
+      _activityKey = key;
+      _activityWritten = status;
+    }
     _updateIndex(
       (cur) => cur.copyWith(
         status: status,
@@ -1087,6 +1126,7 @@ class SyncService extends Service {
   // ---------------------------------------------------------------------------
 
   void _flushChunks() {
+    _flushTimer = null;
     if (_chunkBuffer.isEmpty) return;
     final delta = _chunkBuffer.toString();
     _chunkBuffer.clear();
@@ -1173,6 +1213,7 @@ class SyncService extends Service {
 
   @override
   void dispose() {
+    _syncInFlight?.cancel();
     _flushTimer?.cancel();
     _syncDebounce?.cancel();
     _cancelAllSendTimers();

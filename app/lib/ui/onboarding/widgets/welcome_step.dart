@@ -7,9 +7,13 @@ class WelcomeStep extends StatelessWidget {
     super.key,
     required this.onNext,
     required this.onReturning,
+    this.onChangeRelay,
+    this.relayHost = 'Community relay',
   });
   final VoidCallback onNext;
   final VoidCallback onReturning;
+  final VoidCallback? onChangeRelay;
+  final String relayHost;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -22,34 +26,16 @@ class WelcomeStep extends StatelessWidget {
             child: SingleChildScrollView(
               child: Column(
                 children: [
-                  SizedBox(
-                    height: 28,
-                    width: 28,
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          bottom: 4,
-                          child: Container(
-                            width: 28,
-                            height: 2,
-                            color: context.colors.ink,
-                          ),
-                        ),
-                        Positioned(
-                          bottom: 6,
-                          left: 8,
-                          child: Container(
-                            width: 12,
-                            height: 12,
-                            decoration: BoxDecoration(
-                              color: context.colors.working,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                      ],
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Image.asset(
+                      'assets/branding/perch-icon.png',
+                      width: 100,
+                      height: 100,
+                      semanticLabel: 'Perch',
                     ),
                   ),
+                  const SizedBox(height: 16),
                   Text(
                     'perch',
                     style: brandTextStyle(
@@ -59,7 +45,7 @@ class WelcomeStep extends StatelessWidget {
                   ),
                   const SizedBox(height: 48),
                   Text(
-                    'Watch over your Pi agents',
+                    'Check in on your Pi agents',
                     textAlign: TextAlign.center,
                     style: context.typo.title2,
                   ),
@@ -76,7 +62,16 @@ class WelcomeStep extends StatelessWidget {
             ),
           ),
         ),
-        PrimaryButton(label: 'Get started', onPressed: onNext),
+        Text(
+          'Messages travel through a relay and are not end-to-end encrypted. The relay operator can read them.',
+          style: context.typo.footnote.copyWith(color: context.colors.ink2),
+          textAlign: TextAlign.center,
+        ),
+        TextButton(
+          onPressed: onChangeRelay,
+          child: Text('Relay: $relayHost · Change'),
+        ),
+        PrimaryButton(label: 'Pair your first Mac', onPressed: onNext),
         TextButton(
           onPressed: onReturning,
           child: Text(

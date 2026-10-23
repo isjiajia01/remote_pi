@@ -73,7 +73,7 @@ class HomeViewModel extends ViewModel<HomeState> {
     final previous = state;
     final next = previous is HomeList
         ? previous.copyWith(peers: peers)
-        : HomeList(peers: peers, grouping: _prefs.homeGrouping);
+        : HomeList(peers: peers, grouping: HomeGrouping.machine);
     _update(next);
   }
 

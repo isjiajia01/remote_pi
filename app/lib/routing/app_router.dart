@@ -348,7 +348,7 @@ GoRouter buildRouter(
           GoRoute(
             path: '/settings',
             builder: (ctx, st) => ViewmodelProvider<SettingsViewModel>(
-              child: const SettingsPage(tabbed: true),
+              child: const SettingsPage(tabbed: false),
             ),
           ),
         ],

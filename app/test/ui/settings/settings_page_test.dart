@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:app/data/preferences/preferences.dart';
 import 'package:app/data/transport/connection_manager.dart';
-import 'package:app/data/transport/relay_config.dart';
 import 'package:app/domain/contracts/relay_reachability.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/ui/core/themes/themes.dart';
@@ -121,13 +120,15 @@ void main() {
     (tester) async {
       await pumpPage(tester, const SettingsPage());
       expect(find.byType(CupertinoSliverNavigationBar), findsOneWidget);
-      expect(find.text('MACHINES'), findsOneWidget);
+      expect(find.text('Machines'), findsOneWidget);
       expect(find.text('Studio Mac'), findsOneWidget);
       expect(find.text('mac-session'), findsOneWidget);
       expect(find.textContaining('Paired 12 Oct'), findsOneWidget);
       expect(find.text('Pair a machine'), findsOneWidget);
 
       await tester.tap(find.text('Studio Mac'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rename'));
       await tester.pumpAndSettle();
       expect(find.text('Name this machine'), findsOneWidget);
       await tester.enterText(find.byType(TextField), 'Office');
@@ -136,39 +137,22 @@ void main() {
       expect(storage.peers.single.nickname, 'Office');
       expect(find.text('Office'), findsOneWidget);
 
-      final remove = find.bySemanticsLabel('Remove Office');
-      final removeText = find.descendant(
-        of: remove,
-        matching: find.text('Remove'),
-      );
-      expect(removeText, findsOneWidget);
-      expect(
-        tester.widget<Text>(removeText).style!.color,
-        tester.element(removeText).colors.error,
-      );
-      final button = find.ancestor(
-        of: remove,
-        matching: find.byType(CupertinoButton),
-      );
-      expect(tester.getSize(button).height, greaterThanOrEqualTo(44));
-      expect(tester.getSize(button).width, greaterThanOrEqualTo(44));
-      await tester.tap(find.bySemanticsLabel('Remove Office'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(find.byType(CupertinoActionSheet), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('Manage Office'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove this Mac'));
+      await tester.pumpAndSettle();
       expect(find.text('Remove Office?'), findsOneWidget);
       expect(
-        find.text(
-          'This phone will stop seeing its agents. You can pair again later.',
-        ),
+        find.textContaining('Nothing is deleted on the Mac'),
         findsOneWidget,
       );
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(storage.peers, hasLength(1));
-      await tester.tap(find.bySemanticsLabel('Remove Office'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.bySemanticsLabel('Manage Office'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove this Mac'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Remove').last);
       await tester.pumpAndSettle();
       expect(storage.peers, isEmpty);
@@ -196,12 +180,14 @@ void main() {
         find.byType(CupertinoTextField),
         'https://new.example',
       );
+      await tester.pump();
       await tester.tap(find.text('Check & save'));
       await tester.pumpAndSettle();
-      expect(prefs.relayUrl, 'https://new.example');
-      expect(find.text('Saved · reachable 120 ms'), findsOneWidget);
-      await tester.tap(find.bySemanticsLabel('Back').last);
+      await tester.tap(find.text('Check & switch'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
       await tester.pumpAndSettle();
+      expect(prefs.relayUrl, 'https://new.example');
       expect(find.text('new.example'), findsOneWidget);
     },
   );
@@ -211,12 +197,10 @@ void main() {
   ) async {
     await pumpPage(tester, const RelayPage());
     await tester.enterText(find.byType(CupertinoTextField), 'bad');
+    await tester.pump();
     await tester.tap(find.text('Check & save'));
     await tester.pumpAndSettle();
-    expect(
-      find.text('Enter a full URL starting with https://'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Enter a relay URL'), findsOneWidget);
     expect(prefs.relayUrl, 'https://onboarding.example');
 
     reachability.pending = Completer<RelayCheckResult>();
@@ -224,7 +208,10 @@ void main() {
       find.byType(CupertinoTextField),
       'https://timeout.example',
     );
+    await tester.pump();
     await tester.tap(find.text('Check & save'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Check & switch'));
     await tester.pump();
     expect(find.text('Checking relay…'), findsOneWidget);
     expect(
@@ -235,18 +222,25 @@ void main() {
     );
     await tester.pump(const Duration(seconds: 8));
     await tester.pump();
-    expect(find.text('No answer in 8 s.'), findsOneWidget);
+    expect(find.textContaining('No answer in 8 s.'), findsOneWidget);
     expect(prefs.relayUrl, 'https://onboarding.example');
     reachability.pending!.complete(
       const RelayCheckResult.failed(RelayCheckFailure.unreachable),
     );
     await tester.pumpAndSettle();
     reachability.pending = null;
-    await tester.tap(find.text('Use community relay'));
+    await tester.drag(find.byType(CustomScrollView).last, const Offset(0, -500));
     await tester.pumpAndSettle();
-    expect(prefs.relayUrl, isNull);
-    expect(vm.effectiveRelayUrl, kDefaultRelayUrl);
-    expect(find.text('Saved · reachable 120 ms'), findsOneWidget);
+    await tester.tap(find.text('Keep current relay'));
+    await tester.pumpAndSettle();
+    expect(prefs.relayUrl, 'https://onboarding.example');
+    expect(
+      tester
+          .widget<CupertinoTextField>(find.byType(CupertinoTextField))
+          .controller!
+          .text,
+      prefs.relayUrl,
+    );
   });
 
   testWidgets(

@@ -89,7 +89,11 @@ class _AgentRowState extends State<AgentRow> {
             onTap: widget.onOpen,
             child: AnimatedContainer(
               duration: Duration(
-                milliseconds: _pressed || reduceMotion ? 150 : 250,
+                milliseconds: reduceMotion
+                    ? 0
+                    : _pressed
+                    ? 120
+                    : 220,
               ),
               curve: _pressed ? Curves.easeOut : Curves.easeInOutCubic,
               constraints: const BoxConstraints(minHeight: 64),
@@ -107,13 +111,31 @@ class _AgentRowState extends State<AgentRow> {
                 children: [
                   SizedBox(
                     width: 28,
-                    height: 22,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: StatusDot(
-                        status: item.status,
-                        lastKnownStatus: status,
-                      ),
+                    height: 88,
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          top: 18,
+                          bottom: 0,
+                          left: 9,
+                          child: SizedBox(
+                            width: 1,
+                            child: CustomPaint(
+                              painter: _PerchRail(
+                                c.hairline,
+                                item.stale || status == AgentStatus.offline,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.topLeft,
+                          child: StatusDot(
+                            status: item.status,
+                            lastKnownStatus: status,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   Expanded(
@@ -164,7 +186,7 @@ class _AgentRowState extends State<AgentRow> {
                               ),
                             if (item.room.thinking != null)
                               MetaChip(
-                                label: 'think: ${item.room.thinking!.wire}',
+                                label: 'Think ${item.room.thinking!.wire}',
                               ),
                             if (status == AgentStatus.working ||
                                 status == AgentStatus.offline)
@@ -175,7 +197,11 @@ class _AgentRowState extends State<AgentRow> {
                               )
                             else
                               Text(
-                                status.label,
+                                item.stale
+                                    ? 'Last known'
+                                    : status == AgentStatus.online
+                                    ? 'Idle'
+                                    : status.label,
                                 style: context.typo.caption.copyWith(
                                   color: c.ink2,
                                 ),
@@ -268,6 +294,33 @@ String _fittedPath(String value, double width, BuildContext context) {
   } finally {
     painter.dispose();
   }
+}
+
+class _PerchRail extends CustomPainter {
+  const _PerchRail(this.color, this.dashed);
+  final Color color;
+  final bool dashed;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    if (!dashed) {
+      canvas.drawLine(Offset.zero, Offset(0, size.height), paint);
+      return;
+    }
+    for (double y = 0; y < size.height; y += 8) {
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(0, (y + 4).clamp(0, size.height)),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PerchRail old) =>
+      old.color != color || old.dashed != dashed;
 }
 
 String _middleEllipsis(String value, int maxCharacters) {

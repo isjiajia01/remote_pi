@@ -56,7 +56,7 @@ void main() {
           ),
         ),
       );
-      final label = find.text('ZHANGJIAJIA-MACBOOK-PRO');
+      final label = find.text('Zhangjiajia-MacBook-Pro');
       final summary = find.text('2 working · 1 online');
       expect(label, findsOneWidget);
       expect(tester.widget<Text>(label).maxLines, isNull);
@@ -67,7 +67,7 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       await _pump(tester, _peer(nickname: 'Studio.local'));
-      expect(find.text('STUDIO.LOCAL'), findsOneWidget);
+      expect(find.text('Studio.local'), findsOneWidget);
     });
 
     testWidgets('shows nickname uppercase and NO harness subtitle', (
@@ -81,7 +81,7 @@ void main() {
         ),
       );
 
-      expect(find.text('MACBOOK'), findsOneWidget);
+      expect(find.text('Macbook'), findsOneWidget);
       // The redundant "via …" subtitle is gone.
       expect(find.textContaining('via '), findsNothing);
     });
@@ -90,7 +90,7 @@ void main() {
       'falls back to sessionName without .local when no nickname is set',
       (tester) async {
         await _pump(tester, _peer(sessionName: 'remote_pi · main.local'));
-        expect(find.text('REMOTE_PI · MAIN'), findsOneWidget);
+        expect(find.text('remote_pi · main'), findsOneWidget);
         expect(find.textContaining('via '), findsNothing);
       },
     );

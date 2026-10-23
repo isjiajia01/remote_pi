@@ -74,13 +74,18 @@ class _OnboardingPageState extends State<OnboardingPage> {
         child: ResponsiveCenter(
           child: Column(
             children: [
-              _StepIndicator(step: s.step),
+              if (s.step == OnboardingStep.relay) _StepIndicator(step: s.step),
               Expanded(
                 child: PageView(
                   controller: _pageController,
                   physics: const NeverScrollableScrollPhysics(),
                   children: [
-                    WelcomeStep(onNext: vm.next, onReturning: vm.skipToPair),
+                    WelcomeStep(
+                      onNext: vm.skipToPair,
+                      onReturning: vm.skipToPair,
+                      onChangeRelay: vm.next,
+                      relayHost: Uri.tryParse(vm.relayUrl)?.host ?? vm.relayUrl,
+                    ),
                     RelayStep(
                       state: s,
                       onChoice: vm.setRelayChoice,

@@ -165,7 +165,7 @@ class SettingsPage extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: Text(
-                    'All paired machines must use the same relay.',
+                    'Every paired Mac must use this relay. Messages aren’t end-to-end encrypted.',
                     style: context.typo.footnote,
                   ),
                 ),
@@ -312,7 +312,10 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-    child: Text(label.toUpperCase(), style: context.typo.sectionLabel),
+    child: Text(
+      label,
+      style: context.typo.sectionLabel.copyWith(letterSpacing: 0),
+    ),
   );
 }
 

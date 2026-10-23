@@ -41,14 +41,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Timeline'), findsNothing);
-      expect(
-        tester
-            .widget<CupertinoTabBar>(find.byType(CupertinoTabBar))
-            .items
-            .length,
-        2,
-      );
-      await tester.tap(find.text('Settings'));
+      expect(find.byType(CupertinoTabBar), findsNothing);
+      router.push('/settings');
       await tester.pumpAndSettle();
       expect(find.text('Settings body'), findsOneWidget);
     },

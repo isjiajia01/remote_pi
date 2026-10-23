@@ -9,7 +9,8 @@ Future<bool> showRevokeConfirmDialog(
   context,
   title:
       'Remove ${(peer.nickname?.isNotEmpty ?? false) ? peer.nickname : peer.sessionName}?',
-  message: 'This phone will stop seeing its agents. You can pair again later.',
+  message:
+      'This phone will stop showing its agents. Nothing is deleted on the Mac. You can pair again later.',
   confirmLabel: 'Remove',
   destructive: true,
 );

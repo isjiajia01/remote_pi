@@ -13,6 +13,7 @@
 // the inner-envelope bytes (plain JSON post-rollback, see plano 06).
 
 import 'dart:async';
+import 'package:app/data/transport/bounded_msg_queue.dart';
 import 'dart:convert';
 
 import 'package:app/data/transport/channel.dart';
@@ -35,7 +36,11 @@ class WsTransportError implements Exception {
 
 class WsTransport implements PeerTransport, IControlLink, IRoomTransport {
   final WebSocketChannel _ws;
-  final _queue = _MsgQueue();
+  late final _queue = BoundedMsgQueue(
+    overflowError: const WsTransportError('receive backlog exceeded'),
+    closedError: const WsTransportError('transport closed'),
+    onOverflow: () => unawaited(_ws.sink.close()),
+  );
   final _controlController = StreamController<ControlInbound>.broadcast();
 
   final _roomMessages =
@@ -269,46 +274,6 @@ class WsTransport implements PeerTransport, IControlLink, IRoomTransport {
 }
 
 // ---------------------------------------------------------------------------
-
-class _MsgQueue {
-  final _buf = <Uint8List>[];
-  final _waiters = <Completer<Uint8List>>[];
-  bool _closed = false;
-
-  void add(Uint8List msg) {
-    if (_waiters.isNotEmpty) {
-      _waiters.removeAt(0).complete(msg);
-    } else if (!_closed) {
-      _buf.add(msg);
-    }
-  }
-
-  void error(Object e) {
-    for (final w in _waiters) {
-      w.completeError(e);
-    }
-    _waiters.clear();
-    _closed = true;
-  }
-
-  void close() {
-    for (final w in _waiters) {
-      w.completeError(const WsTransportError('transport closed'));
-    }
-    _waiters.clear();
-    _closed = true;
-  }
-
-  Future<Uint8List> next() {
-    if (_closed) {
-      return Future.error(const WsTransportError('transport closed'));
-    }
-    if (_buf.isNotEmpty) return Future.value(_buf.removeAt(0));
-    final c = Completer<Uint8List>();
-    _waiters.add(c);
-    return c.future;
-  }
-}
 
 // Decodes standard or url-safe base64 (pads defensively).
 Uint8List _b64Decode(String s) {

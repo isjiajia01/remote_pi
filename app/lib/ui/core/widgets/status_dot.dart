@@ -79,7 +79,9 @@ class _StatusDotState extends State<StatusDot>
         ? colors.working
         : filled
         ? colors.online
-        : colors.ink3;
+        : checking
+        ? colors.accent
+        : colors.ink2;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return Semantics(
       label: widget.status == AgentStatus.stale
@@ -149,9 +151,9 @@ class _DashedRing extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
     final rect = (Offset.zero & size).deflate(.75);
-    for (var i = 0; i < 6; i++) {
-      canvas.drawArc(rect, i * math.pi / 3, math.pi / 5, false, paint);
-    }
+    canvas.drawOval(rect, paint);
+    paint.style = PaintingStyle.fill;
+    canvas.drawArc(rect, math.pi / 2, math.pi, true, paint);
   }
 
   @override

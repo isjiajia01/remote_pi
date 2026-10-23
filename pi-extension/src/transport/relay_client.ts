@@ -4,6 +4,8 @@ import { ed25519Sign } from "../pairing/crypto.js";
 import type { Ed25519Keypair } from "../pairing/crypto.js";
 
 const AUTH_TIMEOUT_MS = 5_000;
+/** Max unsent bytes queued on the relay socket before it is reset (default 16 MiB). */
+const MAX_BUFFERED_BYTES = Number(process.env["PERCH_WS_MAX_BUFFER"] ?? 16 * 1024 * 1024);
 
 /**
  * Liveness watchdog. The relay sends a WS Ping every ~25s (relay `peer.rs`),
@@ -162,6 +164,13 @@ export class RelayClient extends EventEmitter {
   send(line: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error("relay: not connected");
+    }
+    // Slow/stalled uplink: unsent bytes pile up in the socket. Dropping single
+    // frames would corrupt the stream, so past the cap we drop the whole
+    // connection; the reconnect path + the app's session_sync restore state.
+    if ((this.ws.bufferedAmount ?? 0) > MAX_BUFFERED_BYTES) {
+      this.ws.terminate();
+      throw new Error("relay: send backlog exceeded, reconnecting");
     }
     this.ws.send(line);
   }

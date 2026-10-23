@@ -1,4 +1,5 @@
 import 'package:app/routing/adaptive.dart';
+import 'package:app/ui/chat/quick_actions/widgets/quick_actions_sheet.dart';
 import 'package:app/ui/chat/quick_actions/widgets/dismiss_on_session_change.dart';
 import 'package:app/ui/chat/quick_actions/states/quick_actions_state.dart';
 import 'package:app/data/actions/actions_repository.dart';
@@ -98,6 +99,33 @@ class _ModelPickerBodyState extends State<_ModelPickerBody> {
               _DragHandle(),
               const SizedBox(height: 8),
               _Header(onRefresh: _refresh),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Thinking', style: context.typo.footnote),
+                    const SizedBox(height: 8),
+                    ThinkingSegmented(
+                      current: context
+                          .watch<QuickActionsViewModel>()
+                          .currentThinking,
+                      disabled:
+                          context.watch<QuickActionsViewModel>().state
+                              is QuickActionsBusy,
+                      onPick: (level) async {
+                        try {
+                          await context
+                              .read<QuickActionsViewModel>()
+                              .setThinking(level);
+                        } catch (_) {
+                          /* shared error stream */
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
               Divider(color: colors.border, height: 1, thickness: 1),
               Flexible(
                 child: FutureBuilder<ModelsCatalogue>(

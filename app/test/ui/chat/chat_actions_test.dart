@@ -67,10 +67,9 @@ void main() {
           ),
         ),
       );
-      expect(find.text('sonnet ▾'), findsOneWidget);
-      expect(find.text('thinking: low ▾'), findsOneWidget);
-      await tester.tap(find.text('/work/perch'));
-      expect(copied, ['/work/perch']);
+      expect(find.text('sonnet'), findsOneWidget);
+      expect(find.text('Think low'), findsOneWidget);
+      expect(find.text('/work/perch'), findsNothing);
       final change = vm.setModel(
         const WireModel(
           id: 'opus',
@@ -82,7 +81,7 @@ void main() {
       );
       final failed = expectLater(change, throwsA(isA<ActionFailure>()));
       await tester.pump();
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(CupertinoActivityIndicator), findsOneWidget);
       final chips = tester
           .widgetList<CupertinoButton>(find.byType(CupertinoButton))
           .toList();

@@ -52,7 +52,14 @@ void main() {
           expect(decoration.color, isNull);
           expect(
             decoration.border,
-            Border.all(color: AppColors.light.ink3, width: 1.5),
+            Border.all(
+              color:
+                  status == AgentStatus.checking ||
+                      status == AgentStatus.unknown
+                  ? AppColors.light.accent
+                  : AppColors.light.ink2,
+              width: 1.5,
+            ),
           );
         }
       }

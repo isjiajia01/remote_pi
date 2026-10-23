@@ -27,7 +27,10 @@ class AgentSectionHeader extends StatelessWidget {
         spacing: 8,
         runSpacing: 4,
         children: [
-          Text(label.toUpperCase(), style: context.typo.sectionLabel),
+          Text(
+            label,
+            style: context.typo.sectionLabel.copyWith(letterSpacing: 0),
+          ),
           if (summary.isNotEmpty)
             Text(
               summary,

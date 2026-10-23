@@ -52,6 +52,7 @@ import {
   type PeerRecord,
 } from "./pairing/storage.js";
 import { fullFeatures, extraCommand } from "./features.js";
+import { ChunkCoalescer } from "./transport/chunk_coalescer.js";
 import { MeshClient } from "./mesh/client.js";
 import {
   canonicalizeEd25519PublicKey,
@@ -1240,10 +1241,22 @@ export function _hasActivePeerForTest(appPeerIdStd: string): boolean {
  * `session_sync` query, or `pair_ok` answering `pair_request`) must NOT
  * use this — they go to the sender channel directly.
  */
-function _broadcastToActive(msg: ServerMessage): void {
+function _broadcastNow(msg: ServerMessage): void {
   for (const ch of _activePeers.values()) {
     try { ch.send(msg); } catch { /* best-effort per channel */ }
   }
+}
+
+/** Streamed text is coalesced (first delta immediate, then a 16 ms window). */
+const _chunks = new ChunkCoalescer((turnId, delta) =>
+  _broadcastNow({ type: "agent_chunk", in_reply_to: turnId, delta }),
+  Number(process.env["PERCH_CHUNK_WINDOW_MS"] ?? 16),
+);
+
+function _broadcastToActive(msg: ServerMessage): void {
+  // Any non-chunk frame (tool, done, error, ...) must follow all prior text.
+  if (msg.type !== "agent_chunk") _chunks.flush();
+  _broadcastNow(msg);
 }
 
 /** Returns true when at least one owner is attached. Derived `paired` UX. */
@@ -1421,6 +1434,7 @@ async function _findKnownPeer(appPeerIdStd: string): Promise<PeerRecord | null> 
  * by omitting the reason; app falls back to ping miss naturally.
  */
 function _goIdle(byeReason?: import("./protocol/types.js").ByeReason): void {
+  _chunks.reset();
   _toolApprovals?.cancelAll();
   _rootLifecycleGeneration += 1;
   _relayLifecycleGeneration += 1;
@@ -2218,7 +2232,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
     if (!_anyPeerActive() || !_currentTurnId) return;
     const ae = event.assistantMessageEvent;
     if (ae.type === "text_delta") {
-      _broadcastToActive({ type: "agent_chunk", in_reply_to: _currentTurnId, delta: ae.delta });
+      _chunks.push(_currentTurnId, ae.delta);
     }
   });
 

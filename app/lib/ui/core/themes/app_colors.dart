@@ -42,6 +42,8 @@ class AppColors extends ThemeExtension<AppColors> {
 
   // Compatibility aliases while screens migrate to the Phase 2 components.
   // Warnings stay neutral; amber is reserved for in-flight agent turns.
+  Color get workingText =>
+      bg.computeLuminance() > .5 ? const Color(0xFF9A5500) : working;
   Color get border => hairline;
   Color get text => ink;
   Color get muted => ink2;
