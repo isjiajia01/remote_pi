@@ -79,7 +79,7 @@ import {
   createExtensionUiBridge,
   type ExtensionUiBridge,
 } from "./extension_ui_bridge.js";
-import { roomIdFor } from "./rooms.js";
+import { activeRoomIdFor as roomIdFor } from "./rooms.js";
 import { registerAgentTools } from "./session/tools.js";
 import { formatPeerInventory } from "./session/peer_inventory.js";
 import { MeshNode } from "./session/mesh_node.js";
@@ -4624,7 +4624,9 @@ export function _routeClientMessageFrom(
       break;
     case "session_new": {
       const actionCtx = _lastCtx as ActionCtx | null;
-      const daemonMode = process.env["REMOTE_PI_DAEMON"] === "1";
+      // Independent sessions have no automatic respawner. Do not acknowledge
+      // New Context then exit; users can create a fresh session from Home.
+      const daemonMode = process.env["REMOTE_PI_DAEMON"] === "1" && !process.env["PERCH_SESSION_ID"];
       // Fresh Pi session via the supervisor: ack, clear remote-pi's mirror, then
       // exit with the private code so the supervisor relaunches without
       // --continue → a genuinely fresh session. Used when there's NO command ctx
@@ -4647,7 +4649,9 @@ export function _routeClientMessageFrom(
           type: "action_error",
           in_reply_to: msg.id,
           action: "session_new",
-          error: "newSession unavailable (no command ctx yet)",
+          error: process.env["PERCH_SESSION_ID"]
+            ? "Create a new independent session from Home"
+            : "newSession unavailable (no command ctx yet)",
         });
         break;
       }

@@ -131,6 +131,12 @@ export function loadLocalConfig(cwd: string): LocalConfig {
 }
 
 export function saveLocalConfig(cwd: string, patch: Partial<LocalConfig>): void {
+  // A mobile-created session owns its inline config, not the project's file.
+  // Renaming one independent session must not change another session's defaults.
+  if (process.env["PERCH_SESSION_ID"] && directConfig()) {
+    process.env[DIRECT_CONFIG_ENV] = JSON.stringify({ ...loadLocalConfig(cwd), ...patch });
+    return;
+  }
   const p = pathFor(cwd);
   const current = loadLocalConfig(cwd);
   const next: LocalConfig = { ...current, ...patch };

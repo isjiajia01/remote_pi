@@ -45,6 +45,33 @@ describe("RpcChild — deliberate stop is not a crash", () => {
     try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
   });
 
+  test.skipIf(process.platform === "win32")("independent session spawns fresh with isolated history and clears failed children", async () => {
+    dir = mkdtempSync(join(tmpdir(), "pi-rpcchild-fresh-"));
+    const bin = join(dir, "args.sh");
+    writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "$@"\nexec sleep 30\n');
+    chmodSync(bin, 0o755);
+    const child = new RpcChild({ piBin: bin, extensionPath: "/no/such.js", cwd: dir,
+      freshSession: true, sessionDir: join(dir, "独立 会话"), config: { agent_name: "independent" } });
+    const lines: string[] = [];
+    const captured = new Promise<void>((resolve) => child.on("stdout", (line: string) => {
+      lines.push(line);
+      if (line === join(dir, "独立 会话")) resolve();
+    }));
+    child.spawn();
+    try {
+      await captured;
+      expect(lines).not.toContain("--continue");
+      expect(lines).toContain("--session-dir");
+      expect(lines).toContain(join(dir, "独立 会话"));
+    } finally { await child.stop(); }
+    const failed = new RpcChild({ piBin: join(dir, "missing"), extensionPath: "/none", cwd: dir });
+    const exited = new Promise<void>((resolve) => failed.once("exit", () => resolve()));
+    failed.spawn();
+    await exited;
+    expect(failed.state).toBe("crashed");
+    await failed.stop(); // No dangling child: stop resolves immediately after ENOENT.
+  });
+
   // POSIX-only: uses a `.sh` stub + SIGTERM/SIGKILL semantics. The RpcChild
   // stop() logic is cross-platform; only this stub/signal harness is POSIX.
   test.skipIf(process.platform === "win32")("stop() emits isCrash:false though the child dies by signal", async () => {

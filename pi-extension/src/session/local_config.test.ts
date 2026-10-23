@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadLocalConfig, localConfigExists, saveLocalConfig } from "./local_config.js";
@@ -27,6 +27,17 @@ describe("loadLocalConfig — file vs REMOTE_PI_DIRECT_CONFIG", () => {
   afterEach(() => {
     delete process.env[ENV];
     rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("independent session rename stays inline and preserves project defaults", () => {
+    writeFileConfig(cwd, { agent_name: "project" });
+    process.env[ENV] = JSON.stringify({ agent_name: "session" });
+    process.env["PERCH_SESSION_ID"] = "12345678-1234-4234-8234-123456789abc";
+    try {
+      saveLocalConfig(cwd, { agent_name: "renamed" });
+      expect(loadLocalConfig(cwd).agent_name).toBe("renamed");
+      expect(JSON.parse(readFileSync(join(cwd, ".pi/remote-pi/config.json"), "utf8")).agent_name).toBe("project");
+    } finally { delete process.env["PERCH_SESSION_ID"]; }
   });
 
   test("reads the on-disk file when env is unset", () => {

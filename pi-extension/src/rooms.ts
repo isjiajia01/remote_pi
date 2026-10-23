@@ -2,6 +2,13 @@ import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { defaultAgentName } from "./session/local_config.js";
 
+/** Mobile-created sessions keep their independent room even after renaming. */
+export function activeRoomIdFor(cwd: string, name?: string): string {
+  const session = process.env["PERCH_SESSION_ID"];
+  return session && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(session)
+    ? `session-${session}` : roomIdFor(cwd, name);
+}
+
 /**
  * Deterministic room id derived from a cwd. Two Pi processes in the same
  * directory produce the same id; different cwds produce different ids

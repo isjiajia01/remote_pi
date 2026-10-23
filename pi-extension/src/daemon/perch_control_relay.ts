@@ -1,9 +1,13 @@
 import type { Ed25519Keypair } from "../pairing/crypto.js";
 import { RelayClient } from "../transport/relay_client.js";
 import { canonicalizeEd25519PublicKey } from "../mesh/encoding.js";
-import { perchError, type PerchClientMessage } from "../protocol/perch.js";
-import { PerchControl } from "./perch_control.js";
+import { perchError, type PerchClientMessage, type PerchServerMessage } from "../protocol/perch.js";
 import { PERCH_CONTROL_ROOM } from "./perch_control_protocol.js";
+
+export interface MachineControl {
+  handle(owner: string, msg: PerchClientMessage): Promise<PerchServerMessage>;
+  disconnect(): void;
+}
 
 export interface ControlRelayTransport {
   connect(options: { roomId: string; roomMeta: { name: string; cwd: string } }): Promise<void>;
@@ -25,7 +29,7 @@ export class PerchControlRelay {
   private retry: ReturnType<typeof setTimeout> | undefined;
   private inFlight = 0;
 
-  constructor(private readonly control: PerchControl,
+  constructor(private readonly control: MachineControl,
     private readonly createTransport: () => ControlRelayTransport) {}
 
   start(): void {
@@ -97,6 +101,6 @@ export class PerchControlRelay {
   }
 }
 
-export function createPerchControlRelay(control: PerchControl, url: string, keypair: Ed25519Keypair): PerchControlRelay {
+export function createPerchControlRelay(control: MachineControl, url: string, keypair: Ed25519Keypair): PerchControlRelay {
   return new PerchControlRelay(control, () => new RelayClient(url, keypair));
 }

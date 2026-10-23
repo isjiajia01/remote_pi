@@ -49,6 +49,16 @@ By default, the extension exposes no `agent_send`, `agent_request` or `list_peer
 
 Original full-feature source is retained. Full mode is explicit: `PERCH_FULL_FEATURES=1` for the extension process, or `--dart-define=PERCH_FULL_FEATURES=true` for an app build. Full mode has additional configuration and is outside this minimal release's device acceptance scope. Do not run the old full and minimal extensions in the same Pi process.
 
+## Create sessions from the phone
+
+The optional minimal `perch-sessiond` service supports browsing locally authorized
+folders and creating independent Pi conversations, including multiple sessions
+in the same folder and creation when no Pi session is online. It reuses pairing
+and the relay without enabling full mode. See
+[mobile session setup and protocol](pi-extension/docs/mobile-sessions.md).
+The service is opt-in and must be deployed separately; it does not create desktop
+terminal tabs or install itself automatically.
+
 ## Relay and security
 
 Use a relay reachable by both devices; see [relay/README.md](relay/README.md) for self-hosting. TLS protects transport. **Messages are not end-to-end encrypted; the relay operator can read them.** Pairing and stored identity use the inherited authentication protocol. A sleeping/offline Mac cannot serve chat. Background push is disabled in this edition.

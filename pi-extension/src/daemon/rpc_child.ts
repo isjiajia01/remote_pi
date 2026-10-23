@@ -43,6 +43,10 @@ export interface RpcChildOptions {
    * when omitted.
    */
   config?: LocalConfig;
+  /** Independent mobile sessions never continue the cwd's latest conversation. */
+  freshSession?: boolean;
+  /** Keep independent session histories separate from cwd-based daemons. */
+  sessionDir?: string;
 }
 
 export interface RpcChildExitEvent {
@@ -261,11 +265,12 @@ export class RpcChild extends EventEmitter {
     // Prefer the supervisor-injected config; fall back to the on-disk file.
     const cfg = this.opts.config ?? loadLocalConfig(this.opts.cwd);
     const sessionName = cfg.agent_name ?? defaultAgentName(this.opts.cwd);
-    const useContinue = !this.forceFreshSessionOnNextSpawn;
+    const useContinue = !this.opts.freshSession && !this.forceFreshSessionOnNextSpawn;
     this.forceFreshSessionOnNextSpawn = false;
     // On Windows `prefixArgs` carries pi's cli.js (we spawn node directly); on
     // POSIX it's empty and `command` is `pi` itself.
-    const args = [...piTarget.prefixArgs, ...rpcSpawnArgs(this.opts.extensionPath, sessionName, useContinue)];
+    const args = [...piTarget.prefixArgs, ...rpcSpawnArgs(this.opts.extensionPath, sessionName, useContinue),
+      ...(this.opts.sessionDir ? ["--session-dir", this.opts.sessionDir] : [])];
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...this.opts.env,
@@ -299,6 +304,8 @@ export class RpcChild extends EventEmitter {
     child.on("exit", (code, signal) => this._onExit(code, signal));
     child.on("error", (err) => {
       // spawn() itself failed (e.g. `pi` binary not found).
+      this.child = null;
+      this._startedAt = null;
       this._state = "crashed";
       process.stderr.write(
         `[remote-pi-supervisord] spawn failed for ${this.opts.cwd}: ${String(err)}\n`,

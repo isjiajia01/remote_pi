@@ -1,9 +1,20 @@
 import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
-import { roomIdForCwd, roomIdFor } from "./rooms.js";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { activeRoomIdFor, roomIdForCwd, roomIdFor } from "./rooms.js";
 import { defaultAgentName } from "./session/local_config.js";
+
+afterEach(() => vi.unstubAllEnvs());
+
+test("independent room survives rename; invalid or absent session ids preserve legacy rooms", () => {
+  const id = "12345678-1234-4234-8234-123456789abc";
+  vi.stubEnv("PERCH_SESSION_ID", id);
+  expect(activeRoomIdFor("/tmp/a", "first")).toBe(`session-${id}`);
+  expect(activeRoomIdFor("/tmp/a", "renamed")).toBe(`session-${id}`);
+  vi.stubEnv("PERCH_SESSION_ID", "invalid");
+  expect(activeRoomIdFor("/tmp/a", "first")).toBe(roomIdFor("/tmp/a", "first"));
+});
 
 describe("roomIdForCwd", () => {
   test("deterministic for the same cwd", () => {

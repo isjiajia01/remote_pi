@@ -1,7 +1,11 @@
 import 'package:app/config/features.dart';
+import 'package:app/data/repositories/control_repository.dart';
+import 'package:app/ui/sessions/new_session_model.dart';
+import 'package:app/ui/sessions/new_session_page.dart';
 import 'package:app/ui/control/control_page.dart';
 import 'package:app/ui/control/viewmodels/control_viewmodel.dart';
 import 'package:app/ui/chat/quick_actions/viewmodels/quick_actions_viewmodel.dart';
+
 import 'dart:async';
 
 import 'package:app/config/dependencies.dart';
@@ -352,6 +356,19 @@ GoRouter buildRouter(
             ),
           ),
         ],
+      ),
+
+      GoRoute(
+        path: '/new-session',
+        builder: (ctx, st) => NewSessionPage(
+          model: NewSessionModel(
+            injector.get<ConnectionManager>(),
+            ControlRepository(injector.get<ConnectionManager>()),
+            const PendingSessionStore(),
+          ),
+          storage: injector.get<PairingStorage>(),
+          preferences: injector.get<Preferences>(),
+        ),
       ),
 
       GoRoute(

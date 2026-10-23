@@ -93,6 +93,24 @@ class _HomePageState extends State<HomePage> {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (state is HomeList && state.peers.isNotEmpty)
+                  CupertinoButton(
+                    padding: const EdgeInsets.all(10),
+                    minimumSize: const Size(44, 44),
+                    onPressed: () {
+                      InteractionFeedback.selection();
+                      context.push('/new-session');
+                    },
+                    child: Semantics(
+                      label: 'New session',
+                      button: true,
+                      child: Icon(
+                        LucideIcons.plus,
+                        size: 22,
+                        color: context.colors.ink2,
+                      ),
+                    ),
+                  ),
                 CupertinoButton(
                   padding: const EdgeInsets.all(10),
                   minimumSize: const Size(44, 44),
@@ -124,8 +142,7 @@ class _HomePageState extends State<HomePage> {
           if (widget.notificationUnavailable)
             const SliverToBoxAdapter(
               child: AppBanner(
-                message:
-                    'This notification’s session is unavailable. Open an agent to reconnect.',
+                message: 'This notification’s session is unavailable. Open an agent to reconnect.',
               ),
             ),
           if (state is HomeList && state.relay == HomeRelay.offline)

@@ -17,6 +17,7 @@
  * Exits cleanly on SIGTERM/SIGINT (used by `remote-pi uninstall`).
  */
 import { fullFeatures } from "../features.js";
+import { loadSessionControlConfig } from "../daemon/session_control.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -78,6 +79,11 @@ async function main(): Promise<void> {
     process.stderr.write("Supervisor unavailable in Perch minimal mode\n");
     process.exitCode = 1;
     return;
+  }
+  const root = join(process.env["REMOTE_PI_HOME"] || homedir(), ".pi", "remote");
+  if (loadPerchControlConfig(join(root, "perch-control.json")).enabled &&
+      loadSessionControlConfig(join(root, "perch-sessions.json"))) {
+    throw new Error("Both control endpoints use perch-control; disable one before starting the supervisor");
   }
   const supervisor = new Supervisor({ extensionPath });
   await supervisor.start();
