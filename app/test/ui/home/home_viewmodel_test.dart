@@ -152,6 +152,53 @@ ConnectionManager _conn({_FakeStorage? storage}) {
 void main() {
   group('HomeViewModel', () {
     test(
+      'remove skips live rooms; sub-agent rooms are never cached; '
+      'End is phone-session only and unavailable without a control',
+      () async {
+        final ch = _ControllableChannel();
+        final storage = _FakeStorage([_peerA]);
+        final conn = ConnectionManager(
+          factory: (_, _) async => ch,
+          storage: storage,
+          emitDebounce: Duration.zero,
+        );
+        final vm = HomeViewModel(
+          storage,
+          Preferences(_FakeSecureStorage()),
+          conn,
+        );
+        await conn.connectTo(_peerA);
+        ch.pushControl(const PeerOnline(peer: 'epk_A'));
+        for (final id in ['r1', 'sub.aaaaaaaaaaaa.r1']) {
+          ch.pushControl(
+            RoomAnnounced(peer: 'epk_A', roomId: id, startedAt: 1),
+          );
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect((await storage.loadRooms('epk_A')).map((r) => r.roomId), ['r1']);
+        final live = vm.visibleItems.firstWhere((i) => i.room.roomId == 'r1');
+        expect(await vm.removeOffline([live]), 0);
+        expect(vm.canEnd(live), isFalse);
+
+        ch.pushControl(
+          const RoomEnded(peer: 'epk_A', roomId: 'r1', sinceTs: 2),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        final ended = vm.visibleItems.firstWhere((i) => i.room.roomId == 'r1');
+        expect(ended.isLive, isFalse);
+        expect(await vm.removeOffline([ended]), 1);
+        expect(
+          conn.roomsFor('epk_A').map((r) => r.roomId),
+          isNot(contains('r1')),
+        );
+        expect(await storage.loadRooms('epk_A'), isEmpty);
+
+        vm.dispose();
+        await conn.disconnect();
+        conn.dispose();
+      },
+    );
+    test(
       'isRoomWorking follows the relay meta.working broadcast for ANY room — '
       'including one that is NOT the connected session, and clears when the '
       'relay says the turn ended (plan/32)',

@@ -15,6 +15,7 @@ import 'package:app/data/mesh/mesh_sync_service.dart';
 import 'package:app/data/local/boxes.dart';
 import 'package:app/data/preferences/preferences.dart';
 import 'package:app/data/repositories/home_read_repository.dart';
+import 'package:app/data/repositories/phone_session_control.dart';
 import 'package:app/data/repositories/session_read_repository.dart';
 import 'package:app/data/repositories/timeline_repository.dart';
 import 'package:app/data/sync/sync_service.dart';
@@ -192,6 +193,7 @@ Future<void> setupDependencies() async {
       _injector.get<Preferences>(),
       _injector.get<ConnectionManager>(),
       _injector.get<HomeReadRepository>(),
+      PhoneSessionControl(_injector.get<ConnectionManager>()),
     ),
   );
   _injector.addViewModel<SettingsViewModel>(

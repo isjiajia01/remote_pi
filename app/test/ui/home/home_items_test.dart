@@ -56,7 +56,8 @@ void main() {
       expect(items.map((i) => i.room.roomId).toList(), ['a1', 'b1', 'b2']);
     });
 
-    test('HomeItem.displayName prefers room.name → cwd basename', () {
+    test('HomeItem.displayName prefers a custom room.name; a generated name '
+        'collapses to its origin (the project is the card header)', () {
       final namedRoom = HomeItem(
         peer: _peer('A'),
         room: const RoomInfo(
@@ -76,7 +77,7 @@ void main() {
           cwd: '/Users/jacob/projects/remote_pi/app',
         ),
       );
-      expect(cwdRoom.displayName, 'app');
+      expect(cwdRoom.displayName, 'Terminal');
     });
   });
 }

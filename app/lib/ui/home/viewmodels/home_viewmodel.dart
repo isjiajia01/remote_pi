@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:app/data/local/records/session_index_record.dart';
 import 'package:app/data/preferences/preferences.dart';
 import 'package:app/data/repositories/home_read_repository.dart';
+import 'package:app/data/repositories/phone_session_control.dart';
 import 'package:app/data/transport/connection_manager.dart';
 import 'package:app/data/transport/epk_encoding.dart';
+import 'package:app/domain/entities/perch_control.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/protocol/protocol.dart';
 import 'package:app/ui/core/viewmodel/viewmodel.dart';
@@ -23,12 +25,15 @@ class HomeViewModel extends ViewModel<HomeState> {
   bool _disposed = false;
   Map<String, SessionIndexRecord> _activity = {};
   final _lastKnownStatuses = <String, AgentStatus>{};
+  final _workingSeen = <String, DateTime>{};
+  final PhoneSessionControl? _phoneSessions;
 
   HomeViewModel(
     this._storage,
     this._prefs,
     this._conn, [
     HomeReadRepository? repository,
+    this._phoneSessions,
   ]) : super(const HomeLoading()) {
     _load();
     _presenceSub = _conn.presenceStream.listen((_) => _update());
@@ -73,7 +78,7 @@ class HomeViewModel extends ViewModel<HomeState> {
     final previous = state;
     final next = previous is HomeList
         ? previous.copyWith(peers: peers)
-        : HomeList(peers: peers, grouping: HomeGrouping.machine);
+        : HomeList(peers: peers, grouping: HomeGrouping.project);
     _update(next);
   }
 
@@ -85,12 +90,18 @@ class HomeViewModel extends ViewModel<HomeState> {
       for (final peer in s.peers) {
         for (final room
             in rooms[normalizeEpkForLookup(peer.remoteEpk)] ?? <RoomInfo>[]) {
-          _lastKnownStatuses['${peer.remoteEpk}:${room.roomId}'] =
-              deriveAgentStatus(
-                presence: _conn.presenceFor(peer.remoteEpk),
-                announced: _conn.isRoomLive(peer.remoteEpk, room.roomId),
-                working: room.working,
-              );
+          final key = '${peer.remoteEpk}:${room.roomId}';
+          final next = deriveAgentStatus(
+            presence: _conn.presenceFor(peer.remoteEpk),
+            announced: _conn.isRoomLive(peer.remoteEpk, room.roomId),
+            working: room.working,
+          );
+          // Working now, or just finished: both mark recent activity.
+          if (next == AgentStatus.working ||
+              _lastKnownStatuses[key] == AgentStatus.working) {
+            _workingSeen[key] = DateTime.now();
+          }
+          _lastKnownStatuses[key] = next;
         }
       }
     }
@@ -100,6 +111,7 @@ class HomeViewModel extends ViewModel<HomeState> {
         statusByEpk: _conn.presenceSnapshot,
         roomsByPeer: rooms,
         statusesByRoom: Map.of(_lastKnownStatuses),
+        workingSeenByRoom: Map.of(_workingSeen),
         relay: relay,
         staleSince:
             s.relay == HomeRelay.connected && !isRelayConnected ||
@@ -210,6 +222,39 @@ class HomeViewModel extends ViewModel<HomeState> {
   /// gate on `!isRoomLive` (only offline rooms can be removed).
   Future<void> deleteRoom(String epk, String roomId) =>
       _conn.deleteCachedRoom(epk, roomId);
+
+  /// Removes offline rows from this phone's list. Live rooms are skipped:
+  /// they would reappear on the next announce and removing them hides a
+  /// running process. Reversible — a room returns when its Pi starts again.
+  /// Chat history stored on this phone is kept.
+  Future<int> removeOffline(Iterable<HomeItem> items) async {
+    var removed = 0;
+    for (final item in items) {
+      if (item.isLive || isRoomLive(item.peer.remoteEpk, item.room.roomId)) {
+        continue;
+      }
+      await _conn.deleteCachedRoom(item.peer.remoteEpk, item.room.roomId);
+      removed++;
+    }
+    return removed;
+  }
+
+  /// Only phone-created sessions can be ended remotely (perch-sessiond
+  /// `sessions.stop`). Terminal sessions have no remote stop by design.
+  bool canEnd(HomeItem item) =>
+      _phoneSessions != null && item.kind.isPhone && item.isLive;
+
+  /// Ends a phone-created session after the user confirmed. Throws
+  /// ControlFailure; on success the row is removed from the list.
+  Future<void> endPhoneSession(HomeItem item) async {
+    final control = _phoneSessions;
+    final id = item.kind.phoneSessionId;
+    if (control == null || id == null) {
+      throw const ControlFailure('unsupported', 'Not a phone session');
+    }
+    await control.stop(item.peer, id);
+    await _conn.deleteCachedRoom(item.peer.remoteEpk, item.room.roomId);
+  }
 
   @override
   void dispose() {

@@ -1,5 +1,6 @@
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:app/ui/core/widgets/widgets.dart';
+import 'package:app/ui/home/states/agent_identity.dart';
 import 'package:app/ui/home/states/home_state.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
@@ -25,11 +26,11 @@ String activityTime(DateTime? at, DateTime now, {bool spoken = false}) {
       1];
 }
 
-String shortModel(String model) => model
-    .split('/')
-    .last
-    .replaceFirst(RegExp(r'^claude-'), '')
-    .replaceFirst(RegExp(r'-\d{8}$'), '');
+String shortModel(String model) => friendlyModel(model).$1;
+
+/// Idle live sessions get an explicit "still running" hint after this long,
+/// so a hidden terminal tab is not mistaken for a closed one.
+const idleHintAfter = Duration(hours: 6);
 
 class AgentRow extends StatefulWidget {
   const AgentRow({
@@ -37,14 +38,26 @@ class AgentRow extends StatefulWidget {
     required this.item,
     required this.onOpen,
     this.showMachine = false,
+    this.showPath = true,
     this.selected = false,
     this.highlighted = false,
     this.staleSince,
     this.now,
+    this.onRemove,
+    this.onEnd,
   });
   final HomeItem item;
   final VoidCallback onOpen;
   final bool showMachine;
+
+  /// Off inside a project card whose header already shows this cwd.
+  final bool showPath;
+
+  /// Offline rows only: drop the cached row from this phone's list.
+  final VoidCallback? onRemove;
+
+  /// Live phone sessions only: confirmed stop via perch-sessiond.
+  final VoidCallback? onEnd;
   final bool selected;
   final bool highlighted;
   final DateTime? staleSince;
@@ -67,19 +80,23 @@ class _AgentRowState extends State<AgentRow> {
     final statusText = item.stale
         ? 'Last known: ${status.label}'
         : status.label;
-    final age = activityTime(item.activity?.lastMessageAt, now);
+    final live = status != AgentStatus.offline;
+    final lastAt = live ? item.idleSince : item.activity?.lastMessageAt;
+    final age = activityTime(lastAt, now);
     final preview = item.activity?.lastMessagePreview?.trim() ?? '';
-    final model = item.room.model?.trim() ?? '';
-    final isModelId = RegExp(
-      r'^[a-z0-9][a-z0-9._:/-]*[0-9][a-z0-9._:/-]*$',
-    ).hasMatch(model);
+    final (model, isModelId) = friendlyModel(item.room.model ?? '');
     final path = shortPath(item.room.cwd ?? '—');
+    final idle = now.difference(item.idleSince);
+    final idleHint =
+        !item.stale && status == AgentStatus.online && idle >= idleHintAfter
+        ? '${item.kind.isPhone ? 'Still running on ${machineLabel(item.peer)}' : 'Still running in a terminal'} · idle ${activityTime(item.idleSince, now)}'
+        : null;
     final row = Semantics(
       button: true,
       onTap: widget.onOpen,
       selected: widget.selected,
       label:
-          '${item.displayName}, $statusText, ${machineLabel(item.peer)}, last activity ${activityTime(item.activity?.lastMessageAt, now, spoken: true)}',
+          '${item.displayName}, $statusText, ${machineLabel(item.peer)}, last activity ${activityTime(lastAt, now, spoken: true)}${idleHint == null ? '' : ', $idleHint'}',
       child: ExcludeSemantics(
         child: Listener(
           onPointerDown: (_) => setState(() => _pressed = true),
@@ -111,7 +128,7 @@ class _AgentRowState extends State<AgentRow> {
                 children: [
                   SizedBox(
                     width: 28,
-                    height: 88,
+                    height: 56,
                     child: Stack(
                       children: [
                         Positioned(
@@ -165,7 +182,7 @@ class _AgentRowState extends State<AgentRow> {
                         const SizedBox(height: 4),
                         if (widget.showMachine)
                           MetaChip(label: machineLabel(item.peer))
-                        else
+                        else if (widget.showPath)
                           LayoutBuilder(
                             builder: (context, constraints) => Text(
                               _fittedPath(path, constraints.maxWidth, context),
@@ -180,10 +197,7 @@ class _AgentRowState extends State<AgentRow> {
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             if (model.isNotEmpty)
-                              MetaChip(
-                                label: isModelId ? shortModel(model) : model,
-                                monospace: isModelId,
-                              ),
+                              MetaChip(label: model, monospace: isModelId),
                             if (item.room.thinking != null)
                               MetaChip(
                                 label: 'Think ${item.room.thinking!.wire}',
@@ -208,6 +222,16 @@ class _AgentRowState extends State<AgentRow> {
                               ),
                           ],
                         ),
+                        if (idleHint != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              idleHint,
+                              style: context.typo.caption.copyWith(
+                                color: c.ink2,
+                              ),
+                            ),
+                          ),
                         if (item.stale)
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
@@ -265,10 +289,32 @@ class _AgentRowState extends State<AgentRow> {
             trailingIcon: LucideIcons.copy,
             onPressed: () {
               Navigator.of(context).pop();
-              Clipboard.setData(ClipboardData(text: item.displayName));
+              Clipboard.setData(
+                ClipboardData(text: item.room.name ?? item.displayName),
+              );
             },
             child: const Text('Copy session name'),
           ),
+          if (widget.onEnd != null)
+            CupertinoContextMenuAction(
+              isDestructiveAction: true,
+              trailingIcon: LucideIcons.power,
+              onPressed: () {
+                Navigator.of(context).pop();
+                widget.onEnd!();
+              },
+              child: const Text('End session…'),
+            ),
+          if (widget.onRemove != null)
+            CupertinoContextMenuAction(
+              isDestructiveAction: true,
+              trailingIcon: LucideIcons.trash2,
+              onPressed: () {
+                Navigator.of(context).pop();
+                widget.onRemove!();
+              },
+              child: const Text('Remove from list'),
+            ),
         ],
         // The context-menu preview uses a FittedBox with unbounded child width.
         child: SizedBox(width: constraints.maxWidth, child: row),

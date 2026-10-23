@@ -971,7 +971,10 @@ class ConnectionManager extends Service {
         if (p.localName != null && p.localName!.isNotEmpty)
           p.roomId: p.localName!,
     };
+    // Sub-agent runs (`sub.` rooms) are ephemeral; never cache them, so a
+    // finished run does not reappear as an offline row after a restart.
     final persisted = list
+        .where((r) => !r.roomId.startsWith('sub.'))
         .map(
           (r) => PersistedRoom(
             roomId: r.roomId,

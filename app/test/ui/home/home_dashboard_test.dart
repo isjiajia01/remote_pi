@@ -103,10 +103,15 @@ void main() {
     },
   );
 
-  test('machine groups put any-working first; rows retain status order', () {
+  test('groups are projects: working first, offline-only projects last', () {
     final groups = list().groups();
-    expect(groups.map((g) => g.label), ['Other', 'Mac']);
-    expect(groups.first.items.map((i) => i.room.roomId), ['two', 'three']);
+    expect(groups.map((g) => g.label), ['project', 'alpha']);
+    expect(groups.first.sessions.map((s) => s.item.room.roomId), [
+      'two',
+      'one',
+    ]);
+    expect(groups.last.isLive, isFalse);
+    expect(groups.last.offline.single.room.roomId, 'three');
   });
   test(
     'project grouping combines cwd basenames across machines, working groups first',
@@ -127,9 +132,10 @@ void main() {
       expect(state, isNot(list()));
     },
   );
-  test('empty paired machines remain sections under All only', () {
+  test('paired machines without rooms are listed as empty peers', () {
     final state = HomeList(peers: [mac], relay: HomeRelay.connected);
-    expect(state.groups().single.items, isEmpty);
-    expect(state.copyWith(filter: HomeFilter.working).groups(), isEmpty);
+    expect(state.groups(), isEmpty);
+    expect(state.emptyPeers().single.remoteEpk, 'mac');
+    expect(list().emptyPeers(), isEmpty);
   });
 }

@@ -163,7 +163,6 @@ void main() {
         tester,
         _Home(const HomeList(peers: [mac], relay: HomeRelay.connected)),
       );
-      expect(find.text('Mac'), findsOneWidget);
       expect(find.text('No agents running on Mac'), findsOneWidget);
       expect(find.bySemanticsLabel('New session'), findsOneWidget);
       expect(find.text('Open Pi and run /remote-pi'), findsOneWidget);
@@ -202,15 +201,17 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-  testWidgets('group menu selects project, row shows machine chip', (
+  testWidgets('rows sit in a project card; one machine shows no machine chip', (
     tester,
   ) async {
     final vm = _Home(ready());
     await _pumpHome(tester, vm);
     expect(find.bySemanticsLabel('Group agents'), findsNothing);
     expect(find.bySemanticsLabel('Settings'), findsOneWidget);
-    expect((vm.state as HomeList).grouping, HomeGrouping.machine);
-    expect(find.text('Mac'), findsOneWidget);
+    expect(find.text('project'), findsOneWidget);
+    expect(find.text('1 session'), findsOneWidget);
+    expect(find.text('Agent one'), findsOneWidget);
+    expect(find.text('Mac'), findsNothing);
   });
   testWidgets('refresh control requests room recheck', (tester) async {
     final vm = _Home(ready());

@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:app/data/preferences/preferences.dart';
 import 'package:app/data/transport/epk_encoding.dart';
+import 'package:app/domain/entities/perch_control.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/protocol/protocol.dart';
 import 'package:app/routing/adaptive.dart';
@@ -12,7 +12,7 @@ import 'package:app/ui/home/viewmodels/home_viewmodel.dart';
 import 'package:app/ui/home/widgets/widgets.dart';
 import 'package:app/ui/update/widgets/update_banner.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Scaffold, Divider;
+import 'package:flutter/material.dart' show Scaffold;
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:app/ui/core/interaction_feedback.dart';
@@ -142,7 +142,8 @@ class _HomePageState extends State<HomePage> {
           if (widget.notificationUnavailable)
             const SliverToBoxAdapter(
               child: AppBanner(
-                message: 'This notification’s session is unavailable. Open an agent to reconnect.',
+                message:
+                    'This notification’s session is unavailable. Open an agent to reconnect.',
               ),
             ),
           if (state is HomeList && state.relay == HomeRelay.offline)
@@ -169,127 +170,213 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _list(BuildContext context, HomeViewModel vm, HomeList state) {
-    final groups = state.groups(normalizeEpk: toStandardB64);
-    final children = <Widget>[];
-    for (final group in groups) {
-      final rows = <Widget>[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Semantics(
-                label: 'Device icon',
-                excludeSemantics: true,
-                child: Text(
-                  machineEmoji(group.peer?.remoteEpk ?? group.key, group.label),
-                  style: const TextStyle(fontSize: 28),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      group.label,
-                      style: context.typo.headline,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _summary(group, state),
-                      style: context.typo.caption.copyWith(
-                        color: context.colors.ink2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+  /// Expanded disclosures: `sub:<sessionKey>`, `off:<projectKey>`,
+  /// `not-running`. All collapsed by default; this app run only.
+  final Set<String> _expanded = {};
+
+  bool _isOpen(String key) => _expanded.contains(key);
+  void _toggle(String key) => setState(
+    () => _expanded.contains(key) ? _expanded.remove(key) : _expanded.add(key),
+  );
+
+  Widget _row(
+    BuildContext context,
+    HomeViewModel vm,
+    HomeList state,
+    HomeItem item,
+  ) => AgentRow(
+    key: ValueKey(item.key),
+    item: item,
+    highlighted:
+        item.peer.remoteEpk == _highlightedEpk && _highlightedEpk != null,
+    showMachine: state.peers.length > 1,
+    showPath: false,
+    selected:
+        isWideLayout(context) &&
+        context.watch<SessionSelection>().matches(
+          item.peer.remoteEpk,
+          item.room.roomId,
         ),
-      ];
-      if (group.items.isEmpty) {
-        rows.add(
-          HomeNoAgents(
-            machine: group.label,
-            highlighted:
-                group.peer?.remoteEpk == _highlightedEpk &&
-                _highlightedEpk != null,
+    staleSince: state.staleSince,
+    now: state.now,
+    onOpen: () => _open(context, vm, item.peer, item.room),
+    onRemove: item.isLive ? null : () => vm.removeOffline([item]),
+    onEnd: vm.canEnd(item) ? () => _confirmEnd(context, vm, item) : null,
+  );
+
+  List<Widget> _subagents(
+    BuildContext context,
+    HomeViewModel vm,
+    HomeList state,
+    String key,
+    List<HomeItem> subs, {
+    bool unlinked = false,
+  }) {
+    if (subs.isEmpty) return const [];
+    final working = subs
+        .where((s) => s.lastKnownStatus == AgentStatus.working)
+        .length;
+    final label =
+        '${plural(subs.length, 'sub-agent')}${working > 0 ? ' · $working working' : ''}${unlinked ? ' · parent not shown' : ''}';
+    return [
+      DisclosureRow(
+        key: ValueKey('disclosure-$key'),
+        label: label,
+        expanded: _isOpen(key),
+        onToggle: () => _toggle(key),
+      ),
+      if (_isOpen(key))
+        for (final sub in subs)
+          SubagentRow(
+            key: ValueKey(sub.key),
+            item: sub,
+            now: state.now,
+            onOpen: () => _open(context, vm, sub.peer, sub.room),
           ),
-        );
-      } else {
-        for (var i = 0; i < group.items.length; i++) {
-          final item = group.items[i];
-          if (i > 0) {
-            rows.add(
-              Padding(
-                padding: const EdgeInsets.only(left: 56),
-                child: Divider(
-                  height: 1,
-                  thickness: 1,
-                  color: context.colors.hairline,
-                ),
-              ),
-            );
-          }
-          rows.add(
-            AgentRow(
-              key: ValueKey(item.key),
-              item: item,
-              highlighted:
-                  item.peer.remoteEpk == _highlightedEpk &&
-                  _highlightedEpk != null,
-              showMachine: state.grouping == HomeGrouping.project,
-              selected:
-                  isWideLayout(context) &&
-                  context.watch<SessionSelection>().matches(
-                    item.peer.remoteEpk,
-                    item.room.roomId,
-                  ),
-              staleSince: state.staleSince,
-              now: state.now,
-              onOpen: () => _open(context, vm, item.peer, item.room),
-            ),
-          );
-        }
-      }
-      final highlighted =
-          group.peer?.remoteEpk == _highlightedEpk && _highlightedEpk != null;
-      children.add(
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-          child: AnimatedContainer(
-            key: ValueKey('machine-card-${group.key}'),
-            duration: Duration(
-              milliseconds: MediaQuery.disableAnimationsOf(context) ? 0 : 220,
-            ),
-            curve: Curves.easeInOutCubic,
-            decoration: BoxDecoration(
-              color: highlighted
-                  ? context.colors.surface2
-                  : context.colors.surface,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: Column(children: rows),
-            ),
-          ),
+    ];
+  }
+
+  Widget _card(String key, List<Widget> rows) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+    child: Container(
+      key: ValueKey('project-card-$key'),
+      decoration: BoxDecoration(
+        color: context.colors.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Column(children: rows),
+      ),
+    ),
+  );
+
+  Widget _removeButton(
+    BuildContext context,
+    HomeViewModel vm,
+    List<HomeItem> items,
+  ) => CupertinoButton(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    minimumSize: const Size(44, 44),
+    onPressed: () => _confirmRemove(context, vm, items),
+    child: Text(
+      'Remove',
+      style: context.typo.footnote.copyWith(color: context.colors.error),
+    ),
+  );
+
+  Widget _liveCard(
+    BuildContext context,
+    HomeViewModel vm,
+    HomeList state,
+    HomeGroup group,
+  ) {
+    final rows = <Widget>[ProjectHeader(group: group)];
+    for (var i = 0; i < group.sessions.length; i++) {
+      final session = group.sessions[i];
+      if (i > 0) rows.add(const RowDivider());
+      rows.add(_row(context, vm, state, session.item));
+      rows.addAll(
+        _subagents(
+          context,
+          vm,
+          state,
+          'sub:${session.item.key}',
+          session.subagents,
         ),
       );
     }
-    // Project grouping has no project to name until rooms are announced.
-    if (groups.isEmpty && state.filter == HomeFilter.all) {
-      for (final peer in state.peers) {
-        children.add(PeerSectionHeader(peer: peer));
+    if (group.orphans.isNotEmpty) {
+      if (group.sessions.isNotEmpty) rows.add(const RowDivider());
+      rows.addAll(
+        _subagents(
+          context,
+          vm,
+          state,
+          'sub:${group.key}',
+          group.orphans,
+          unlinked: true,
+        ),
+      );
+    }
+    if (group.offline.isNotEmpty) {
+      final key = 'off:${group.key}';
+      final open = _isOpen(key) || state.filter == HomeFilter.offline;
+      rows.add(const RowDivider(indent: 16));
+      rows.add(
+        DisclosureRow(
+          key: ValueKey('disclosure-$key'),
+          label: 'Offline · ${group.offline.length}',
+          expanded: open,
+          onToggle: () => _toggle(key),
+          indent: 16,
+          trailing: _removeButton(context, vm, group.offline),
+        ),
+      );
+      if (open) {
+        for (final item in group.offline) {
+          rows.add(_row(context, vm, state, item));
+        }
+      }
+    }
+    rows.add(const SizedBox(height: 4));
+    return _card(group.key, rows);
+  }
+
+  Widget _offlineCard(
+    BuildContext context,
+    HomeViewModel vm,
+    HomeList state,
+    HomeGroup group,
+  ) => _card(group.key, [
+    ProjectHeader(group: group),
+    for (final item in group.offline) _row(context, vm, state, item),
+    const SizedBox(height: 4),
+  ]);
+
+  Widget _list(BuildContext context, HomeViewModel vm, HomeList state) {
+    final groups = state.groups(normalizeEpk: toStandardB64);
+    final live = groups.where((g) => g.isLive).toList();
+    final resting = groups.where((g) => !g.isLive).toList();
+    final children = <Widget>[
+      for (final group in live) _liveCard(context, vm, state, group),
+    ];
+    if (resting.isNotEmpty) {
+      final open =
+          _isOpen('not-running') ||
+          live.isEmpty ||
+          state.filter == HomeFilter.offline;
+      children.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 16, 4, 0),
+          child: DisclosureRow(
+            key: const ValueKey('disclosure-not-running'),
+            label: 'Not running · ${plural(resting.length, 'project')}',
+            expanded: open,
+            onToggle: () => _toggle('not-running'),
+            indent: 20,
+            trailing: _removeButton(context, vm, [
+              for (final g in resting) ...g.offline,
+            ]),
+          ),
+        ),
+      );
+      if (open) {
+        for (final group in resting) {
+          children.add(_offlineCard(context, vm, state, group));
+        }
+      }
+    }
+    if (state.filter == HomeFilter.all) {
+      for (final peer in state.emptyPeers(normalizeEpk: toStandardB64)) {
         children.add(
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: HomeNoAgents(machine: machineLabel(peer)),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+            child: HomeNoAgents(
+              machine: machineLabel(peer),
+              highlighted:
+                  peer.remoteEpk == _highlightedEpk && _highlightedEpk != null,
+            ),
           ),
         );
       }
@@ -319,34 +406,66 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  String _summary(HomeGroup group, HomeList state) {
-    final now = state.now ?? DateTime.now();
-    if (state.relay != HomeRelay.connected) {
-      return 'Last known · as of ${activityTime(state.staleSince, now)}';
+  Future<void> _confirmRemove(
+    BuildContext context,
+    HomeViewModel vm,
+    List<HomeItem> items,
+  ) async {
+    final ok = await showConfirmSheet(
+      context,
+      title: items.length == 1
+          ? 'Remove 1 offline session?'
+          : 'Remove ${items.length} offline sessions?',
+      message:
+          'They leave this list and come back if they start again. Chat history on this phone is kept.',
+      confirmLabel: 'Remove',
+      destructive: true,
+    );
+    if (ok) await vm.removeOffline(items);
+  }
+
+  Future<void> _confirmEnd(
+    BuildContext context,
+    HomeViewModel vm,
+    HomeItem item,
+  ) async {
+    final ok = await showConfirmSheet(
+      context,
+      title: 'End this phone session?',
+      message:
+          'Pi stops in ${projectLabel(item.room)} on ${machineLabel(item.peer)}. A reply in progress is cancelled. The session history stays on the Mac.',
+      confirmLabel: 'End session',
+      destructive: true,
+    );
+    if (!ok || !context.mounted) return;
+    try {
+      await vm.endPhoneSession(item);
+    } on ControlFailure catch (e) {
+      if (!context.mounted) return;
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (dialog) => CupertinoAlertDialog(
+          title: const Text('Couldn’t end session'),
+          content: Text(switch (e.code) {
+            'offline' || 'timeout' =>
+              'Your Mac or its Perch session service is not reachable. Check that the Mac is awake and try again.',
+            'unsupported' =>
+              'This Mac’s Perch session service is not running, so phone sessions can’t be ended remotely.',
+            'forbidden' || 'unauthorized' =>
+              'Only the phone that created this session can end it.',
+            'conflict' =>
+              'The session service no longer owns this process. End it on the Mac.',
+            _ => e.message,
+          }),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(dialog).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
     }
-    final peer = group.peer;
-    final presence = peer == null
-        ? null
-        : state.statusByEpk[toStandardB64(peer.remoteEpk)];
-    if (presence is PresenceOffline) {
-      final at = presence.sinceTs;
-      return at == null
-          ? 'Offline'
-          : 'Offline · seen ${activityTime(DateTime.fromMillisecondsSinceEpoch(at), now)} ago';
-    }
-    final working = group.items
-        .where((i) => i.lastKnownStatus == AgentStatus.working)
-        .length;
-    final online = group.items
-        .where((i) => i.lastKnownStatus == AgentStatus.online)
-        .length;
-    if (working > 0 || online > 0) {
-      return 'Online · ${group.items.length} agents${working > 0 ? ' · $working working' : ''}';
-    }
-    if (group.items.any((i) => i.lastKnownStatus == AgentStatus.checking)) {
-      return 'Checking';
-    }
-    return group.items.isEmpty ? '' : 'Offline';
   }
 
   static Future<void> _open(
