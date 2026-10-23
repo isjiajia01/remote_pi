@@ -9,8 +9,8 @@
 .orchestration/results/*
 !.orchestration/results/.gitkeep
 
-# Node
-node_modules/
+# Node (directories and temporary dependency symlinks)
+node_modules
 dist/
 *.tsbuildinfo
 
