@@ -7,6 +7,7 @@ import UserNotifications
   private var pushChannel: FlutterMethodChannel?
   private var dartReady = false
   private var pendingTap: [String: Any]?
+  private var registrationFailed = false
   private var deviceToken: String?
 
   override func application(
@@ -27,6 +28,7 @@ import UserNotifications
       switch call.method {
       case "ready":
         self.dartReady = true
+        if self.registrationFailed { channel.invokeMethod("registrationFailed", arguments: nil) }
         if let token = self.deviceToken { channel.invokeMethod("token", arguments: token) }
         if let tap = self.pendingTap {
           self.pendingTap = nil
@@ -49,9 +51,16 @@ import UserNotifications
 
   override func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
     let hex = token.map { String(format: "%02x", $0) }.joined()
+    registrationFailed = false
     deviceToken = hex
     if dartReady { pushChannel?.invokeMethod("token", arguments: hex) }
     super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: token)
+  }
+
+  override func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+    registrationFailed = true
+    if dartReady { pushChannel?.invokeMethod("registrationFailed", arguments: nil) }
+    super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
   }
 
   override func userNotificationCenter(_ center: UNUserNotificationCenter,
@@ -59,7 +68,7 @@ import UserNotifications
     let info = response.notification.request.content.userInfo
     // Navigation hints only; approval authority always comes from the live channel.
     var tap: [String: Any] = [:]
-    for key in ["kind", "event_id", "session_id", "tool_call_id"] {
+    for key in ["kind", "event_id", "session_id", "tool_call_id", "machine_id", "room_id"] {
       if let value = info[key] as? String { tap[key] = value }
     }
     if dartReady { pushChannel?.invokeMethod("tap", arguments: tap) }

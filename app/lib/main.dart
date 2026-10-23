@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:app/config/features.dart';
 import 'package:app/data/approvals/approval_service.dart';
 import 'package:app/data/push/push_service.dart';
+import 'package:app/data/push/push_navigation.dart';
 import 'package:app/config/dependencies.dart';
 import 'package:app/data/local/boxes.dart';
 import 'package:app/data/mesh/mesh_sync_service.dart';
@@ -45,7 +46,12 @@ class _RemotePiAppState extends State<RemotePiApp> with WidgetsBindingObserver {
     injector.get<MeshSyncService>(),
   );
 
+  late final _pushNavigation = PushNavigation(
+    injector.get<PairingStorage>(),
+    injector.get<ConnectionManager>(),
+  );
   StreamSubscription<Map<String, dynamic>>? _pushSub;
+  int _notificationGeneration = 0;
   Map<String, dynamic>? _pendingNotification;
   bool get _notificationReady => !{
     '/boot',
@@ -68,13 +74,20 @@ class _RemotePiAppState extends State<RemotePiApp> with WidgetsBindingObserver {
     final storage = injector.get<PairingStorage>();
     final prefs = injector.get<Preferences>();
     final conn = injector.get<ConnectionManager>();
-    final target = injector.get<ApprovalService>().resolveNotification(payload);
+    final generation = ++_notificationGeneration;
+    final approval = payload['kind'] == 'approval_request' && perchFullFeatures
+        ? injector.get<ApprovalService>().resolveNotification(payload)
+        : null;
+    final target = approval == null
+        ? await _pushNavigation.resolve(payload)
+        : (peerEpk: approval.peerEpk, roomId: approval.roomId);
+    if (!mounted || generation != _notificationGeneration) return;
     if (target == null || await storage.loadPeer(target.peerEpk) == null) {
       if (mounted) _router.go('/home?notification=unavailable');
       return;
     }
     await prefs.setSelectedRoom(epk: target.peerEpk, roomId: target.roomId);
-    if (!mounted) return;
+    if (!mounted || generation != _notificationGeneration) return;
     conn.switchRoom(target.roomId);
     _router.go('/home');
     unawaited(_router.push('/chat'));
@@ -85,14 +98,12 @@ class _RemotePiAppState extends State<RemotePiApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _router.routeInformationProvider.addListener(_onRouteChanged);
-    if (perchFullFeatures) {
-      _pushSub = injector.get<PushService>().taps.listen(
-        (payload) => unawaited(_openNotification(payload)),
-      );
-    }
+    _pushSub = injector.get<PushService>().taps.listen(
+      (payload) => unawaited(_openNotification(payload)),
+    );
     // Start after the first frame; native retains taps until ready.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (perchFullFeatures) unawaited(injector.get<PushService>().start());
+      unawaited(injector.get<PushService>().start());
     });
   }
 
@@ -117,7 +128,7 @@ class _RemotePiAppState extends State<RemotePiApp> with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         meshSync.startPolling();
-        if (perchFullFeatures) unawaited(injector.get<PushService>().start());
+        unawaited(injector.get<PushService>().start());
         // ignore: unawaited_futures
         meshSync.pullOnDemand();
       case AppLifecycleState.inactive:

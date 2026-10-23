@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:app/data/push/push_service.dart';
 
 import 'package:app/data/mesh/mesh_sync_service.dart';
 import 'package:app/data/preferences/preferences.dart';
@@ -37,6 +38,7 @@ class SettingsViewModel extends ViewModel<SettingsState> {
     this._conn,
     this._reachability, {
     MeshSyncService? meshSync,
+    this.push,
     UpdateChecker? updateChecker,
     UrlOpener? urlOpener,
     this.appVersion = 'Unknown',
@@ -52,6 +54,7 @@ class SettingsViewModel extends ViewModel<SettingsState> {
     unawaited(checkCurrentRelay());
   }
 
+  final PushService? push;
   final RelayReachability _reachability;
   final UpdateChecker? _updateChecker;
   final UrlOpener? _urlOpener;

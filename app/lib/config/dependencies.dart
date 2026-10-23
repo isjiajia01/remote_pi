@@ -119,10 +119,10 @@ Future<void> setupDependencies() async {
     _injector.addService<ApprovalService>(
       () => ApprovalService(_injector.get<ConnectionManager>(), owner),
     );
-    _injector.addService<PushService>(
-      () => PushService(_injector.get<ConnectionManager>(), owner),
-    );
   }
+  _injector.addService<PushService>(
+    () => PushService(_injector.get<ConnectionManager>(), owner),
+  );
 
   // Plan 29 — on-device speech-to-text. Singleton: it owns a broadcast
   // sound-level stream that must survive across chat navigations; the
@@ -201,6 +201,7 @@ Future<void> setupDependencies() async {
       _injector.get<ConnectionManager>(),
       _injector.get<RelayReachability>(),
       meshSync: _injector.get<MeshSyncService>(),
+      push: _injector.get<PushService>(),
       updateChecker: _injector.get<UpdateChecker>(),
       urlOpener: _injector.get<UrlOpener>(),
       appVersion: packageInfo.version,

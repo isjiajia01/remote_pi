@@ -112,6 +112,21 @@ class SettingsPage extends StatelessWidget {
                     ],
                   ),
                 ],
+                if (vm.push != null) ...[
+                  const _SectionHeader('Notifications'),
+                  _Group(
+                    children: [
+                      ValueListenableBuilder<String>(
+                        valueListenable: vm.push!.status,
+                        builder: (context, status, _) => _SettingsRow(
+                          icon: LucideIcons.bell,
+                          label: '$status · Retry',
+                          onTap: () => vm.push!.retry(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const _SectionHeader('Relay'),
                 _Group(
                   children: [

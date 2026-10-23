@@ -5,14 +5,15 @@ import 'package:app/protocol/protocol.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../approvals/approval_service_test.dart' show Channel, Storage, flush;
+import '../approvals/approval_service_test.dart' show flush;
+import 'push_fakes.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const native = MethodChannel('test/perch-push');
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-  late Channel channel;
+  late PushChannel channel;
   late ConnectionManager conn;
   late PushService service;
   var allowed = true;
@@ -31,10 +32,10 @@ void main() {
       native,
       (call) async => call.method == 'requestPermission' ? allowed : null,
     );
-    channel = Channel();
+    channel = PushChannel();
     conn = ConnectionManager(
       factory: (_, _) async => channel,
-      storage: Storage(),
+      storage: PushStorage(),
     );
     service = PushService(conn, () => 'paired-owner', channel: native);
     conn.adopt(
@@ -46,7 +47,14 @@ void main() {
         pairedAt: '2026-01-01',
       ),
     );
+    channel.controls.add(
+      RoomsSnapshot(
+        peer: 'mac',
+        rooms: [RoomInfo(startedAt: 0, roomId: 'main', name: 'Run')],
+      ),
+    );
     await flush();
+    await Future<void>.delayed(const Duration(milliseconds: 60));
   });
   tearDown(() {
     service.dispose();
@@ -117,4 +125,66 @@ void main() {
     await service.start();
     expect(channel.sent.length, 2);
   });
+  test(
+    'control-only waits, first usable room retries and room change does not reuse channel acknowledgement',
+    () async {
+      channel.controls.add(
+        RoomsSnapshot(
+          peer: 'mac',
+          rooms: [
+            RoomInfo(startedAt: 0, roomId: 'perch-control', name: 'Control'),
+          ],
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await service.start();
+      await emit('token', 'a' * 64);
+      expect(channel.sent, isEmpty);
+      expect(service.status.value, contains('Open a running session'));
+      channel.controls.add(
+        RoomsSnapshot(
+          peer: 'mac',
+          rooms: [RoomInfo(startedAt: 0, roomId: 'session-ready', name: 'Run')],
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await flush();
+      expect(channel.sent.single.room, 'session-ready');
+      final first = channel.sent.single.message as PerchPushRegister;
+      channel.rooms['session-ready']!.add(
+        PerchPushResult(id: first.id, registered: true),
+      );
+      await flush();
+      expect(service.status.value, 'Registered');
+      channel.controls.add(
+        RoomsSnapshot(
+          peer: 'mac',
+          rooms: [RoomInfo(startedAt: 0, roomId: 'session-new', name: 'New')],
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await flush();
+      expect(channel.sent.last.room, 'session-new');
+    },
+  );
+  test(
+    'native failure, denial and reconnect expose status and retry',
+    () async {
+      await service.start();
+      await emit('registrationFailed', null);
+      expect(service.status.value, contains('Registration failed'));
+      await service.retry();
+      await emit('token', 'a' * 64);
+      final first = channel.sent.last.message as PerchPushRegister;
+      channel.messages.add(PerchPushResult(id: first.id, registered: true));
+      await flush();
+      expect(service.status.value, 'Registered');
+      conn.adopt(channel, conn.activePeer!);
+      await flush();
+      expect(channel.sent.length, 2);
+      allowed = false;
+      await service.start();
+      expect(service.status.value, contains('Permission denied'));
+    },
+  );
 }

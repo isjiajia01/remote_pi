@@ -322,6 +322,34 @@ class ConnectionManager extends Service {
     link.sendControl(presenceCheckFrame(list));
   }
 
+  /// Await an authoritative snapshot, including unchanged snapshots, after requesting it.
+  Future<List<RoomInfo>?> refreshRoomsForPeer(String epk) async {
+    final link = _controlLink;
+    if (link == null) return null;
+    final completer = Completer<List<RoomInfo>?>();
+    final sub = link.controlFrames.listen(
+      (frame) {
+        if (frame is RoomsSnapshot &&
+            toStandardB64(frame.peer) == toStandardB64(epk) &&
+            !completer.isCompleted) {
+          completer.complete(frame.rooms);
+        }
+      },
+      onError: (Object _, StackTrace _) {
+        if (!completer.isCompleted) completer.complete(null);
+      },
+    );
+    try {
+      link.sendControl(roomsCheckFrame([toStandardB64(epk)]));
+      return await completer.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => null,
+      );
+    } finally {
+      await sub.cancel();
+    }
+  }
+
   /// Current online channel cast to its control side, when supported.
   IControlLink? get _controlLink {
     final s = _status;
