@@ -26,7 +26,9 @@ class PushService extends Service {
   StreamSubscription<Map<String, List<RoomInfo>>>? _roomsSub;
   String? _registeredRoom;
   String? _pendingRoom;
-  int _timeoutRetries = 0;
+  // Two attempts per room per connection/explicit retry. Room metadata updates
+  // must not reset this budget or trap the UI in an endless registering loop.
+  final _roomAttempts = <String, int>{};
   void Function(ServerMessage)? _onMessage;
   String? _listeningRoom;
   String? _token;
@@ -46,7 +48,7 @@ class PushService extends Service {
     _pendingId = null;
     _registeredChannel = null;
     _listeningRoom = null;
-    _timeoutRetries = 0;
+    _roomAttempts.clear();
     this.status.value = _enabled ? 'Waiting to connect' : this.status.value;
     if (status is StatusOnline) {
       void onMessage(ServerMessage message) {
@@ -64,6 +66,11 @@ class PushService extends Service {
           _pendingTimer?.cancel();
           _pendingId = null;
           this.status.value = 'Configuration unavailable';
+          final room = _pendingRoom;
+          if (room != null) _roomAttempts[room] = 2;
+          // Older minimal extensions explicitly reject push. Another live
+          // session on the same machine may already run the updated extension.
+          if (message.code == 'unsupported') unawaited(_upload());
         }
       }
 
@@ -79,6 +86,9 @@ class PushService extends Service {
   Stream<Map<String, dynamic>> get taps => _taps.stream;
 
   Future<void> start() async {
+    if (_pendingId == null && _registeredChannel == null) {
+      _roomAttempts.clear();
+    }
     try {
       await _native.invokeMethod<void>('ready');
       final allowed =
@@ -136,10 +146,9 @@ class PushService extends Service {
       this.status.value = 'Open a running session to enable notifications';
       return;
     }
-    final room =
-        rooms.where((r) => r.roomId == _conn.activeRoomId).firstOrNull ??
-        rooms.first;
-    if (_pendingId != null && _pendingRoom == room.roomId) return;
+    final liveRooms = rooms.map((room) => room.roomId).toSet();
+    _roomAttempts.removeWhere((room, _) => !liveRooms.contains(room));
+    if (_pendingId != null && liveRooms.contains(_pendingRoom)) return;
     if (_pendingId != null) {
       _pendingTimer?.cancel();
       _pendingId = null;
@@ -147,9 +156,18 @@ class PushService extends Service {
     if (identical(_registeredChannel, status.channel) &&
         _registeredToken == token &&
         _registeredOwner == owner &&
-        _registeredRoom == room.roomId) {
+        liveRooms.contains(_registeredRoom)) {
       return;
     }
+    final candidates = rooms
+        .where((room) => (_roomAttempts[room.roomId] ?? 0) < 2)
+        .toList();
+    // Keep the terminal timeout/rejection visible until Retry, reconnect or a
+    // newly available room. A working/model update alone is not a retry signal.
+    if (candidates.isEmpty) return;
+    final room =
+        candidates.where((r) => r.roomId == _conn.activeRoomId).firstOrNull ??
+        candidates.first;
     if (status.channel is IRoomChannel && _listeningRoom != room.roomId) {
       unawaited(_roomMessagesSub?.cancel());
       _listeningRoom = room.roomId;
@@ -163,13 +181,15 @@ class PushService extends Service {
     final id = uuid7();
     _pendingId = id;
     _pendingRoom = room.roomId;
+    _roomAttempts[room.roomId] = (_roomAttempts[room.roomId] ?? 0) + 1;
     this.status.value = 'Registering…';
     _registeredToken = token;
     _registeredOwner = owner;
     _pendingTimer = Timer(const Duration(seconds: 10), () {
+      if (_pendingId != id) return;
       _pendingId = null;
       this.status.value = 'Registration timed out — tap to retry';
-      if (_timeoutRetries++ < 1) unawaited(_upload());
+      unawaited(_upload());
     });
     try {
       final message = PerchPushRegister(
@@ -203,7 +223,7 @@ class PushService extends Service {
     _pendingTimer?.cancel();
     _pendingId = null;
     _registeredChannel = null;
-    _timeoutRetries = 0;
+    _roomAttempts.clear();
     await start();
   }
 
@@ -218,6 +238,7 @@ class PushService extends Service {
     _registeredToken = null;
     _registeredRoom = null;
     _registeredOwner = null;
+    _roomAttempts.clear();
     if (status is! StatusOnline || owner == null || token == null) return;
     try {
       final message = PerchPushRegister(
