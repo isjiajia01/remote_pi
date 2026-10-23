@@ -49,7 +49,7 @@ async function execute(r: ExtensionRunner, count: () => void, id = "call-1", nes
     { systemPrompt: "", messages: [], tools: [{ name: "danger", description: "counter",
       parameters: Type.Object({ nested: Type.Object({ value: Type.Number() }) }),
       execute: async () => { count(); await nested?.(); return { content: [{ type: "text", text: "ok" }], details: {} }; } }] },
-    { model: { provider: "test" }, convertToLlm: (messages: unknown[]) => messages, shouldStopAfterTurn: async () => true,
+    { model: { provider: "test" }, convertToLlm: (messages: unknown[]) => messages, finishTurn: async () => ({ action: "end" as const }),
       beforeToolCall: async ({ toolCall, args }: { toolCall: { id: string; name: string }; args: Record<string, unknown> }) =>
         r.emitToolCall({ type: "tool_call", toolName: toolCall.name, toolCallId: toolCall.id, input: args }) },
     () => {}, undefined, () => ({ async *[Symbol.asyncIterator]() { yield { type: "done" }; }, result: async () => message }));
