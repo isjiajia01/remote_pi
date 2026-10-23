@@ -165,6 +165,7 @@ void main() {
       );
       expect(find.text('Mac'), findsOneWidget);
       expect(find.text('No agents running on Mac'), findsOneWidget);
+      expect(find.bySemanticsLabel('New session'), findsOneWidget);
       expect(find.text('Open Pi and run /remote-pi'), findsOneWidget);
       expect(find.byType(AgentRow), findsNothing);
     },

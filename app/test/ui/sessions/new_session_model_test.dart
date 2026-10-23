@@ -53,6 +53,7 @@ class Client extends ControlClient {
   final Connection connection;
   final MemoryStore store;
   bool timeoutCreate = false;
+  bool deletedDirectory = false;
   String state = 'failed';
   final calls = <ControlAction>[];
   @override
@@ -104,6 +105,12 @@ class Client extends ControlClient {
           action.id,
           reason: 'persist before dispatch',
         );
+        if (deletedDirectory) {
+          throw const ControlFailure(
+            'invalid_argument',
+            'Directory is unavailable',
+          );
+        }
         if (timeoutCreate) throw const ControlFailure('timeout', 'unknown');
         return ControlReply(0, {
           'session_id': 'new',
@@ -192,6 +199,48 @@ void main() {
       expect(model.error, contains('failed'));
       await model.stop();
       expect(model.hasPending, isFalse);
+    },
+  );
+  test(
+    'deleted directory rejection releases pending and allows folder reselection',
+    () async {
+      await model.initialize([mac]);
+      await model.selectPeer(mac);
+      await model.browse('deleted');
+      client.deletedDirectory = true;
+      await model.create();
+      expect(model.error, contains('unavailable'));
+      expect(store.value, isNull);
+      expect(model.hasPending, isFalse);
+      expect(model.root, isNull);
+      client.deletedDirectory = false;
+      await model.selectPeer(mac);
+      conn.live = true;
+      client.state = 'running';
+      await model.create();
+      expect(model.ready, isTrue);
+    },
+  );
+  test(
+    'interrupted pending can be released after explicit local cleanup acknowledgement',
+    () async {
+      store.value = {
+        'peer': 'mac',
+        'id': 'interrupted-request',
+        'root_id': 'life',
+        'relative_path': '',
+      };
+      client.state = 'interrupted';
+      await model.initialize([mac]);
+      expect(model.hasPending, isTrue);
+      expect(model.ready, isFalse);
+      await model.acknowledgeInterrupted();
+      expect(store.value, isNull);
+      expect(model.hasPending, isFalse);
+      expect(client.calls.where((a) => a.method == 'sessions.stop'), isEmpty);
+      await model.selectPeer(mac);
+      await model.create();
+      expect(client.calls.last.id, isNot('interrupted-request'));
     },
   );
   test(

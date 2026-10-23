@@ -209,10 +209,23 @@ class NewSessionModel extends ChangeNotifier {
   Future<void> _recover() async {
     await _connect();
     final p = pending!;
-    session = await _request('sessions.create', {
-      'root_id': p['root_id'],
-      'relative_path': p['relative_path'],
-    }, id: p['id'] as String);
+    try {
+      session = await _request('sessions.create', {
+        'root_id': p['root_id'],
+        'relative_path': p['relative_path'],
+      }, id: p['id'] as String);
+    } on ControlFailure catch (e) {
+      // The service returns invalid_argument before recording or spawning a
+      // creation. Unknown outcomes and permission changes retain the ID.
+      if (e.code == 'invalid_argument' && session == null) {
+        await _clear();
+        root = null;
+        path = '';
+        directories = [];
+        nextOffset = null;
+      }
+      rethrow;
+    }
     await _waitUntilLive();
   }
 
@@ -268,6 +281,12 @@ class NewSessionModel extends ChangeNotifier {
     if (session != null && ['failed', 'stopped'].contains(session!['state'])) {
       await _clear();
     }
+  });
+
+  /// Only invoked after the user confirms local orphan cleanup. This clears
+  /// phone bookkeeping; the backend replay record remains intact.
+  Future<void> acknowledgeInterrupted() => _run(() async {
+    if (session?['state'] == 'interrupted') await _clear();
   });
 
   Future<void> completeOpening() async {

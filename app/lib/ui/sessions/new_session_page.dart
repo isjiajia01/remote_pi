@@ -102,6 +102,32 @@ class _NewSessionPageState extends State<NewSessionPage> {
     }
   }
 
+  Future<void> _confirmInterruptedCleanup() async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: const Text('Finished cleanup on your Mac?'),
+        content: const Text(
+          'The service restarted and cannot manage the previous Pi process. '
+          'Check your Mac and stop any leftover process first. '
+          'Clearing this request only removes the pending item on this phone; '
+          'it does not stop Pi or delete its history.',
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Cleanup done — clear request'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) await model.acknowledgeInterrupted();
+  }
+
   @override
   void dispose() {
     model.removeListener(_changed);
@@ -230,6 +256,11 @@ class _NewSessionPageState extends State<NewSessionPage> {
                   CupertinoButton(
                     onPressed: model.busy ? null : model.resolveTerminal,
                     child: const Text('Dismiss finished request'),
+                  )
+                else if (model.session!['state'] == 'interrupted')
+                  CupertinoButton(
+                    onPressed: model.busy ? null : _confirmInterruptedCleanup,
+                    child: const Text('I handled this on my Mac…'),
                   )
                 else
                   CupertinoButton(
