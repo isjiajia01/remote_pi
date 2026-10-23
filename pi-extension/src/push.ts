@@ -9,7 +9,7 @@ import { pushPayload, validPushEnvironment, validPushToken,
 
 export type PushConfig = { enabled: false } | {
   enabled: true; key_path: string; key_id: string; team_id: string;
-  topic: "dev.zhangjiajia.perch"; environment: PushEnvironment;
+  topic: "dev.zhangjiajia.perch"; environment: PushEnvironment; include_preview?: boolean;
 };
 function remoteDir(): string { return join(process.env.REMOTE_PI_HOME ?? homedir(), ".pi", "remote"); }
 export function pushConfigPath(): string {
@@ -24,10 +24,11 @@ export function loadPushConfig(path = pushConfigPath()): PushConfig {
   try {
     const value = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
     if (!value || value.enabled !== true ||
-        Object.keys(value).some((key) => !["enabled", "key_path", "key_id", "team_id", "topic", "environment"].includes(key)) ||
+        Object.keys(value).some((key) => !["enabled", "key_path", "key_id", "team_id", "topic", "environment", "include_preview"].includes(key)) ||
         typeof value.key_path !== "string" || !isAbsolute(value.key_path) ||
         typeof value.key_id !== "string" || !/^[A-Z0-9]{10}$/.test(value.key_id) ||
         typeof value.team_id !== "string" || !/^[A-Z0-9]{10}$/.test(value.team_id) ||
+        (value.include_preview !== undefined && typeof value.include_preview !== "boolean") ||
         value.topic !== "dev.zhangjiajia.perch" || !validPushEnvironment(value.environment)) return { enabled: false };
     return value as Extract<PushConfig, { enabled: true }>;
   } catch { return { enabled: false }; }
@@ -103,13 +104,13 @@ export class ApnsProviderToken {
   invalidate(): void { this.cached = undefined; }
 }
 
-type ApnsResponse = { status: number; reason?: string };
+export type ApnsResponse = { status: number; reason?: string };
 /** endpoint is injectable only in code, never by remote registration or config. */
 export class ApnsSender {
   private readonly provider: ApnsProviderToken;
   constructor(private readonly config: Extract<PushConfig, { enabled: true }>,
     private readonly endpoint = config.environment === "sandbox" ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com",
-    now = Date.now, private readonly timeoutMs = 5000) {
+    private readonly now = Date.now, private readonly timeoutMs = 5000) {
     this.provider = new ApnsProviderToken(config, now);
   }
   async send(token: string, event: PushEvent): Promise<ApnsResponse> {
@@ -122,6 +123,7 @@ export class ApnsSender {
     return response;
   }
   private request(token: string, event: PushEvent): Promise<ApnsResponse> {
+    const bodyJson = JSON.stringify(pushPayload(event, this.config.include_preview !== false));
     const authorization = `bearer ${this.provider.get()}`;
     const collapseId = createHash("sha256").update(JSON.stringify([event.kind, event.event_id])).digest("hex");
     return new Promise((resolve, reject) => {
@@ -135,7 +137,7 @@ export class ApnsSender {
       session.on("error", () => finish(new Error("APNs connection failed")));
       const request = session.request({ ":method": "POST", ":path": `/3/device/${token}`,
         authorization, "apns-topic": this.config.topic, "apns-push-type": "alert", "apns-priority": "10",
-        "apns-collapse-id": collapseId, "content-type": "application/json" });
+        "apns-collapse-id": collapseId, "apns-expiration": String(Math.floor(this.now() / 1000) + 3600), "content-type": "application/json" });
       let status = 0;
       let body = "";
       request.on("response", (headers) => { status = Number(headers[":status"]); });
@@ -151,7 +153,7 @@ export class ApnsSender {
         finish(undefined, { status, reason });
       });
       request.on("close", () => { if (!request.readableEnded) finish(new Error("APNs stream closed")); });
-      request.end(JSON.stringify(pushPayload(event)));
+      request.end(bodyJson);
     });
   }
 }
@@ -173,6 +175,7 @@ export class PerchPush {
           Object.keys(msg).some((key) => !["type", "id", "version", "owner", "token", "environment"].includes(key))) {
         return perchError(id, "invalid_argument", "Invalid push registration");
       }
+      if (msg.type === "perch_push_register" && this.config.enabled && msg.environment !== this.config.environment) return perchError(id, "forbidden", "Push environment does not match local configuration");
       if (msg.type === "perch_push_register" && !this.config.enabled) return perchError(id, "forbidden", "Push is disabled locally");
       // Recheck after asynchronous authorization and commit without an intervening await.
       if (!await this.paired(owner) || !await authenticated()) return perchError(id, "unauthorized", "Sender is not a paired Owner");
@@ -181,20 +184,32 @@ export class PerchPush {
       return { type: "perch_push_result", id, version: 1, registered: msg.type === "perch_push_register" };
     } catch { return perchError(id, "internal", "Push registration failed"); }
   }
-  async notify(owner: string, event: PushEvent): Promise<void> {
-    if (!this.config.enabled || !this.sender) return;
+  async notify(owner: string, event: PushEvent): Promise<string[]> {
+    if (!this.config.enabled || !this.sender) return ["configuration unavailable"];
     const key = JSON.stringify([owner, event.kind, event.event_id]);
-    if (this.seen.has(key)) return;
-    this.seen.add(key); // Includes in-flight sends; network failure never delays tool execution.
+    if (this.seen.has(key)) return ["duplicate"];
+    this.seen.add(key);
     if (this.seen.size > 4096) this.seen.delete(this.seen.values().next().value!);
+    const outcomes: string[] = [];
     try {
       for (const device of this.registry.devices(owner, this.config.environment)) {
-        if (!await this.paired(owner)) return;
-        try {
-          const result = await this.sender.send(device.token, event);
-          if (result.status === 410 || result.reason === "BadDeviceToken") this.registry.removeInvalid(device);
-        } catch { /* best effort; never log tokens, payloads or key material */ }
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (!await this.paired(owner)) { outcomes.push("owner revoked"); break; }
+          try {
+            const result = await this.sender.send(device.token, event);
+            if (result.status === 410 || result.reason === "BadDeviceToken") this.registry.removeInvalid(device);
+            if (result.status === 200) { outcomes.push("APNs accepted (delivery unverified)"); break; }
+            if ((result.status !== 429 && result.status < 500) || attempt === 2) {
+              outcomes.push(result.status === 403 ? "configuration rejected (403)" : `APNs rejected (${result.status})`);
+              break;
+            }
+          } catch {
+            if (attempt === 2) { outcomes.push("network or local configuration failure"); break; }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt + Math.random() * 100));
+        }
       }
-    } catch { /* local registry unavailable */ }
+      return outcomes.length ? outcomes : ["no devices"];
+    } catch { return ["registry unavailable"]; }
   }
 }

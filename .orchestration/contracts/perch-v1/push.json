@@ -8,7 +8,12 @@
       "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "environment": "sandbox"
     },
-    "response": { "type": "perch_push_result", "id": "push-register-1", "version": 1, "registered": true }
+    "response": {
+      "type": "perch_push_result",
+      "id": "push-register-1",
+      "version": 1,
+      "registered": true
+    }
   },
   "unregister": {
     "request": {
@@ -19,14 +24,84 @@
       "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "environment": "sandbox"
     },
-    "response": { "type": "perch_push_result", "id": "push-unregister-1", "version": 1, "registered": false }
+    "response": {
+      "type": "perch_push_result",
+      "id": "push-unregister-1",
+      "version": 1,
+      "registered": false
+    }
   },
   "approval": {
-    "event": { "kind": "approval_request", "event_id": "approval-1", "session_id": "session-1", "tool_call_id": "call-1" },
-    "payload": { "aps": { "alert": "Perch has an update", "sound": "default" }, "kind": "approval_request", "event_id": "approval-1", "session_id": "session-1", "tool_call_id": "call-1" }
+    "event": {
+      "kind": "approval_request",
+      "event_id": "approval-1",
+      "session_id": "session-1",
+      "tool_call_id": "call-1"
+    },
+    "payload": {
+      "aps": {
+        "alert": "需要你操作，点开 Perch 查看",
+        "sound": "default"
+      },
+      "kind": "approval_request",
+      "event_id": "approval-1",
+      "session_id": "session-1",
+      "tool_call_id": "call-1"
+    }
   },
   "finished": {
-    "event": { "kind": "session_finished", "event_id": "run-1", "session_id": "session-1" },
-    "payload": { "aps": { "alert": "Perch has an update", "sound": "default" }, "kind": "session_finished", "event_id": "run-1", "session_id": "session-1" }
+    "event": {
+      "kind": "session_finished",
+      "event_id": "run-1",
+      "session_id": "session-1"
+    },
+    "payload": {
+      "aps": {
+        "alert": "本次回复已结束，点开查看",
+        "sound": "default"
+      },
+      "kind": "session_finished",
+      "event_id": "run-1",
+      "session_id": "session-1"
+    }
+  },
+  "preview": {
+    "event": {
+      "kind": "session_finished",
+      "event_id": "preview-1",
+      "session_id": "session-1",
+      "preview": "完成了 👋",
+      "target": {
+        "machine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=",
+        "room_id": "session-123"
+      }
+    },
+    "payload": {
+      "aps": {
+        "alert": "完成了 👋",
+        "sound": "default"
+      },
+      "kind": "session_finished",
+      "event_id": "preview-1",
+      "session_id": "session-1",
+      "machine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=",
+      "room_id": "session-123"
+    }
+  },
+  "prompt": {
+    "event": {
+      "kind": "ui_prompt",
+      "event_id": "prompt-1",
+      "session_id": "session-1"
+    },
+    "payload": {
+      "aps": {
+        "alert": "需要你操作，点开 Perch 查看",
+        "sound": "default"
+      },
+      "kind": "ui_prompt",
+      "event_id": "prompt-1",
+      "session_id": "session-1"
+    }
   }
 }

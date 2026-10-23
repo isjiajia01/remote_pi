@@ -74,6 +74,8 @@ import { RelayClient, RoomAlreadyOpenError } from "./transport/relay_client.js";
 import { handlePerchMessage, perchError, type PerchServerMessage } from "./protocol/perch.js";
 import { PlainPeerChannel } from "./transport/peer_channel.js";
 import { loadApprovalConfig, ToolApprovals } from "./approvals.js";
+import { registerNotifications } from "./notifications.js";
+import type { PushEvent } from "./protocol/push.js";
 import { loadPushConfig, PerchPush, PushTokenRegistry, pushTokenDir } from "./push.js";
 import {
   createExtensionUiBridge,
@@ -178,7 +180,15 @@ let _relayUrl: string | null = null;  // URL used by current _relay connection
 const _activePeers = new Map<string, PlainPeerChannel>();
 let _push: { config: string; service: PerchPush } | undefined;
 let _pushSessionId = randomUUID();
-let _pushRunId: string | null = null;
+async function _notifyPushOwners(event: PushEvent): Promise<string[]> {
+  const owners = new Set((await listPeers()).map((peer) => _inspectPeerRecord(peer)?.runtimeKey).filter((owner) => !!owner));
+  if (!loadPushConfig().enabled) return ["configuration unavailable"];
+  if (!owners.size) return ["no devices"];
+  return (await Promise.all([...owners].map((owner) => _perchPush().notify(owner!, event)))).flat();
+}
+function _pushTarget() {
+  return _cachedEd25519 && _myRoomId ? { machine_id: Buffer.from(_cachedEd25519.publicKey).toString("base64"), room_id: _myRoomId } : undefined;
+}
 function _perchPush(): PerchPush {
   const config = loadPushConfig();
   const dir = pushTokenDir();
@@ -2120,6 +2130,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   applied.add(pi);
 
   _pi = pi;
+  registerNotifications(pi, _pushTarget, _notifyPushOwners);
 
   // Plan/57 — bridge @eko24ive/pi-ask clarification flows to the paired app.
   // Inert when pi-ask isn't installed (no events fire) or the SDK exposes no
@@ -2217,7 +2228,6 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   });
 
   pi.on("agent_start", () => {
-    _pushRunId = randomUUID();
     _agentRunActive = true;
     _agentRunGeneration += 1;
   });
@@ -2298,15 +2308,6 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
 
   pi.on("agent_end", () => {
     _toolApprovals?.cancelAll();
-    if (fullFeatures() && _pushRunId) {
-      const event = { kind: "session_finished" as const, event_id: _pushRunId, session_id: _pushSessionId };
-      _pushRunId = null;
-      // Registered devices may be offline; current pairing, rather than a live channel, authorizes push.
-      void listPeers().then((peers) => {
-        const owners = new Set(peers.map((peer) => _inspectPeerRecord(peer)?.runtimeKey).filter((owner) => !!owner));
-        for (const owner of owners) if (owner) void _perchPush().notify(owner, event);
-      }).catch(() => {});
-    }
     // Buffer is fed by `message_end`; here we only finalize the outbound
     // turn signal to every connected owner. No buffer mutation.
     if (_anyPeerActive() && _currentTurnId) {
@@ -2399,7 +2400,6 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   pi.on("session_start", (_event, ctx) => {
     _toolApprovals?.resetSession();
     _pushSessionId = randomUUID();
-    _pushRunId = null;
     _lastEventCtx = ctx;
     // session_shutdown disposes per-session pi-ask subscriptions. A host that
     // reuses this module instance does NOT re-run the factory, so rebind the
@@ -2495,7 +2495,6 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
   // best-effort: every step is guarded so a partially-initialised instance
   // (e.g. shutdown lands mid-`_cmdRoot`) tears down without throwing.
   pi.on("session_shutdown", async () => {
-    _pushRunId = null;
     _toolApprovals?.resetSession();
     // Revoke async authority synchronously, before any teardown await. `_disposed`
     // blocks the outgoing continuation immediately; the root and candidate
@@ -2558,7 +2557,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
         return _shortidCompletions(shortPrefix, "revoke ");
       }
       return [
-        "setup", "status", "stop",
+        "setup", "status", "stop", "push-test",
         "pair", "devices", "revoke",
         "rename",
         "set-relay",
@@ -2585,6 +2584,10 @@ const extension: ExtensionFactory = (pi: ExtensionAPI): void => {
       }
       if      (sub === "")                       { await _cmdRoot(ctx); }
       else if (sub === "setup")                  { await _cmdSetup(ctx); }
+      else if (sub === "push-test") {
+        const outcomes = await _notifyPushOwners({ kind: "session_finished", event_id: randomUUID(), session_id: _pushSessionId, target: _pushTarget() });
+        ctx.ui.notify(`Perch push: ${outcomes.join("; ")}`, "info");
+      }
       else if (sub === "status")                 { _cmdStatus(ctx); }
       else if (sub === "stop")                   { await _cmdStop(ctx); }
       else if (sub === "pair" || sub.startsWith("pair ")) { await _cmdPair(ctx, sub.slice("pair".length).trim()); }
@@ -4452,7 +4455,7 @@ export function _routeClientMessageFrom(
   msg: ClientMessage,
   ctx: Pick<ExtensionContext, "abort">,
 ): void {
-  if (!fullFeatures() && msg.type.startsWith("perch_")) {
+  if (!fullFeatures() && msg.type.startsWith("perch_") && msg.type !== "perch_push_register" && msg.type !== "perch_push_unregister") {
     sender.send(perchError("id" in msg ? String(msg.id) : "", "unsupported", "Unavailable in Perch minimal mode"));
     return;
   }

@@ -82,6 +82,37 @@ describe("Perch opt-in APNs", () => {
     expect(readdirSync(dir)).not.toContain("tokens");
   });
 
+  test("preview switch is strict and registration environment mismatch fails visibly", async () => {
+    const path = join(dir, "preview.json");
+    writeFileSync(path, JSON.stringify({ ...config, include_preview: false }));
+    expect(loadPushConfig(path)).toHaveProperty("include_preview", false);
+    writeFileSync(path, JSON.stringify({ ...config, include_preview: "false" }));
+    expect(loadPushConfig(path)).toEqual({ enabled: false });
+    expect(await service().handle(owner, registration({ environment: "production" }), async () => true)).toHaveProperty("error.code", "forbidden");
+    for (const name of ["preview", "prompt"]) expect(pushPayload(fixture[name].event)).toEqual(fixture[name].payload);
+    registry.register(owner, token, "sandbox");
+    await new PerchPush({ ...config, include_preview: false }, registry, async () => true,
+      new ApnsSender({ ...config, include_preview: false }, endpoint)).notify(owner, fixture.preview.event);
+    expect(received[0].body).toHaveProperty("aps.alert", "本次回复已结束，点开查看");
+  });
+
+  test("bounded retry preserves collapse ID, diagnostics and revocation checks", async () => {
+    registry.register(owner, token, "sandbox");
+    responses.push({ status: 429 }, { status: 503 });
+    expect(await service().notify(owner, fixture.finished.event)).toEqual(["APNs accepted (delivery unverified)"]);
+    expect(received).toHaveLength(3);
+    expect(new Set(received.map(r => r.headers["apns-collapse-id"])).size).toBe(1);
+    responses.push({ status: 403 });
+    expect(await service().notify(owner, fixture.finished.event)).toEqual(["configuration rejected (403)"]);
+    expect(received).toHaveLength(4);
+    responses.push({ status: 503 });
+    let checks = 0;
+    expect(await service(async () => ++checks === 1).notify(owner, fixture.finished.event)).toEqual(["owner revoked"]);
+    expect(received).toHaveLength(5);
+    expect(await new PerchPush({ enabled: false }, registry, async () => true).notify(owner, fixture.finished.event)).toEqual(["configuration unavailable"]);
+    expect(await service().notify("no-owner", fixture.finished.event)).toEqual(["no devices"]);
+  });
+
   test("ES256 JWT verifies, caches below 50 minutes, refreshes at boundary and clock rollback", () => {
     let now = 1_800_000_000_000;
     const provider = new ApnsProviderToken(config, () => now);
@@ -157,6 +188,7 @@ describe("Perch opt-in APNs", () => {
     const { headers, body } = received[0];
     expect(headers).toMatchObject({ ":method": "POST", ":path": `/3/device/${token}`,
       "apns-topic": config.topic, "apns-push-type": "alert", "apns-priority": "10" });
+    expect(Number(headers["apns-expiration"])).toBeGreaterThan(Math.floor(Date.now() / 1000) + 3500);
     expect(headers["apns-collapse-id"]).toMatch(/^[a-f0-9]{64}$/);
     expect(headers.authorization).toMatch(/^bearer /);
     expect(body).toEqual(fixture.approval.payload);
@@ -206,8 +238,8 @@ describe("Perch opt-in APNs", () => {
     expect(registry.devices(owner, "sandbox")).toHaveLength(1);
     responses.push({ status: 403, reason: "ExpiredProviderToken" });
     await new ApnsSender(config, endpoint).send(token, fixture.approval.event);
-    expect(received).toHaveLength(3);
-    expect(received[1].headers.authorization).not.toBe(received[2].headers.authorization);
-    expect(received[1].headers["apns-collapse-id"]).toBe(received[2].headers["apns-collapse-id"]);
+    expect(received).toHaveLength(4);
+    expect(received[2].headers.authorization).not.toBe(received[3].headers.authorization);
+    expect(received[2].headers["apns-collapse-id"]).toBe(received[3].headers["apns-collapse-id"]);
   });
 });

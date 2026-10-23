@@ -584,6 +584,36 @@ describe("state machine + pair_request flow", () => {
     expect(relayRef.current!.send.mock.calls.length).toBe(sendsBefore);
   });
 
+  test("minimal authenticated push register/unregister pass the narrow gate; other management stays unsupported", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "perch-minimal-registration-"));
+    const configPath = join(dir, "config.json");
+    const tokenDir = join(dir, "tokens");
+    writeFileSync(configPath, JSON.stringify({ enabled: true, key_path: join(dir, "unused.p8"),
+      key_id: "TESTKEY001", team_id: "TESTTEAM01", topic: "dev.zhangjiajia.perch", environment: "sandbox" }));
+    vi.stubEnv("PERCH_FULL_FEATURES", "0");
+    vi.stubEnv("PERCH_PUSH_CONFIG_PATH", configPath);
+    vi.stubEnv("PERCH_PUSH_TOKEN_DIR", tokenDir);
+    try {
+      await _pairForTest(OWNER_STANDARD_FIXTURE);
+      const relay = relayRef.current!;
+      for (const type of ["perch_push_register", "perch_push_unregister"]) {
+        const id = type;
+        relay.emit("message", makeInnerLine(OWNER_STANDARD_FIXTURE, { type, id, version: 1,
+          owner: OWNER_STANDARD_FIXTURE, token: "a".repeat(64), environment: "sandbox" }));
+        await vi.waitFor(() => expect(relay.send.mock.calls.map(c => decodeSentCt(c[0]).inner))
+          .toContainEqual({ type: "perch_push_result", id, version: 1, registered: type === "perch_push_register" }));
+        expect(new PushTokenRegistry(tokenDir).devices(OWNER_STANDARD_FIXTURE, "sandbox")).toHaveLength(type === "perch_push_register" ? 1 : 0);
+      }
+      relay.emit("message", makeInnerLine(OWNER_STANDARD_FIXTURE, { type: "perch_capabilities_get", id: "still-disabled", version: 1 }));
+      await vi.waitFor(() => expect(relay.send.mock.calls.map(c => decodeSentCt(c[0]).inner))
+        .toContainEqual(expect.objectContaining({ type: "perch_error", id: "still-disabled", error: expect.objectContaining({ code: "unsupported" }) })));
+      const diagnostic = captureHandler("remote-pi");
+      const ctx = makeMockCtx();
+      await diagnostic("push-test", ctx);
+      expect(ctx.ui.notify).toHaveBeenCalledWith("Perch push: no devices", "info");
+    } finally { vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test("known peer reconnect: any non-pair message from peers.json → paired", async () => {
     const APP_PEER_ID = OWNER_STANDARD_FIXTURE;
     _knownPeers.push({
