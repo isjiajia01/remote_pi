@@ -43,6 +43,7 @@ class NewSessionModel extends ChangeNotifier {
   bool ready = false;
   bool _disposed = false;
   int _operation = 0;
+  Completer<void>? _cancelWait;
   bool get hasPending => pending != null;
 
   void _notify() {
@@ -232,32 +233,68 @@ class NewSessionModel extends ChangeNotifier {
   Future<void> _waitUntilLive() async {
     final operation = ++_operation;
     final deadline = DateTime.now().add(const Duration(seconds: 45));
-    while (!_disposed && operation == _operation) {
-      final current = session!;
-      // A process running is not proof its chat is ready.
-      if (connection.isRoomLive(
-        peer!.remoteEpk,
-        current['room_id'] as String,
-      )) {
-        ready = true;
-        return;
+    final live = Completer<void>();
+    final cancelled = Completer<void>();
+    _cancelWait = cancelled;
+    void checkRoom() {
+      if (!live.isCompleted &&
+          connection.isRoomLive(
+            peer!.remoteEpk,
+            session!['room_id'] as String,
+          )) {
+        live.complete();
       }
-      if (['failed', 'stopped', 'interrupted'].contains(current['state'])) {
-        error =
-            current['error'] as String? ??
-            'Session ${current['state']}. You can resolve this request before starting another.';
-        return;
+    }
+
+    final subscription = connection.roomsStream.listen((_) => checkRoom());
+    // Subscribe before checking to include rooms announced during creation.
+    checkRoom();
+    try {
+      while (!_disposed && operation == _operation) {
+        final current = session!;
+        // A process running is not proof its chat is ready.
+        if (live.isCompleted ||
+            connection.isRoomLive(
+              peer!.remoteEpk,
+              current['room_id'] as String,
+            )) {
+          ready = true;
+          return;
+        }
+        if (['failed', 'stopped', 'interrupted'].contains(current['state'])) {
+          error =
+              current['error'] as String? ??
+              'Session ${current['state']}. You can resolve this request before starting another.';
+          return;
+        }
+        if (DateTime.now().isAfter(deadline)) {
+          error =
+              'Pi started but its chat is not online yet. Retry to check the same session, or stop it.';
+          return;
+        }
+        // Room announcements wake this immediately; process-state polling is
+        // only a fallback for startup failures, not the chat readiness signal.
+        await Future.any<void>([
+          live.future,
+          cancelled.future,
+          Future<void>.delayed(const Duration(seconds: 3)),
+        ]);
+        if (_disposed || operation != _operation) return;
+        if (live.isCompleted) continue;
+        final status = _request('sessions.get', {
+          'session_id': current['session_id'],
+        });
+        final result = await Future.any<Map<String, dynamic>?>([
+          status,
+          live.future.then((_) => null),
+          cancelled.future.then((_) => null),
+        ]);
+        if (_disposed || operation != _operation) return;
+        if (result != null) session = result;
       }
-      if (DateTime.now().isAfter(deadline)) {
-        error =
-            'Pi started but its chat is not online yet. Retry to check the same session, or stop it.';
-        return;
-      }
-      await Future<void>.delayed(const Duration(seconds: 1));
-      if (_disposed || operation != _operation) return;
-      session = await _request('sessions.get', {
-        'session_id': current['session_id'],
-      });
+    } finally {
+      await subscription.cancel();
+      if (identical(_cancelWait, cancelled)) _cancelWait = null;
     }
   }
 
@@ -306,6 +343,8 @@ class NewSessionModel extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _operation++;
+    final cancel = _cancelWait;
+    if (cancel != null && !cancel.isCompleted) cancel.complete();
     client.dispose();
     super.dispose();
   }

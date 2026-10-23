@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:app/protocol/protocol.dart';
 import 'package:app/data/transport/channel.dart';
 import 'package:app/data/transport/connection_manager.dart';
 import 'package:app/domain/contracts/control_client.dart';
@@ -34,6 +37,9 @@ class Channel extends Fake implements IChannel {}
 class Connection extends Fake implements ConnectionManager {
   PeerRecord? selected = other;
   bool live = false;
+  final rooms = StreamController<Map<String, List<RoomInfo>>>.broadcast();
+  @override
+  Stream<Map<String, List<RoomInfo>>> get roomsStream => rooms.stream;
   @override
   PeerRecord? get activePeer => selected;
   @override
@@ -55,6 +61,7 @@ class Client extends ControlClient {
   bool timeoutCreate = false;
   bool deletedDirectory = false;
   String state = 'failed';
+  final created = Completer<void>();
   final calls = <ControlAction>[];
   @override
   String get connectionKey => 'test';
@@ -100,6 +107,7 @@ class Client extends ControlClient {
           'next_offset': null,
         });
       case 'sessions.create':
+        if (!created.isCompleted) created.complete();
         expect(
           store.value?['id'],
           action.id,
@@ -137,7 +145,44 @@ void main() {
     client = Client(conn, store);
     model = NewSessionModel(conn, client, store);
   });
-  tearDown(() => model.dispose());
+  tearDown(() async {
+    model.dispose();
+    await conn.rooms.close();
+  });
+  test(
+    'exact room announcement opens immediately without waiting for status poll',
+    () async {
+      await model.initialize([mac]);
+      await model.selectPeer(mac);
+      client.state = 'running';
+      final creation = model.create();
+      await client.created.future;
+      await Future<void>.delayed(Duration.zero);
+      // An unrelated announcement cannot mark this session ready.
+      conn.rooms.add({});
+      await Future<void>.delayed(Duration.zero);
+      expect(model.ready, isFalse);
+      conn.live = true;
+      conn.rooms.add({});
+      await creation.timeout(const Duration(milliseconds: 500));
+      expect(model.ready, isTrue);
+      expect(client.calls.where((a) => a.method == 'sessions.get'), isEmpty);
+      expect(conn.rooms.hasListener, isFalse);
+    },
+  );
+  test('disposing cancels room listener and pending readiness wait', () async {
+    await model.initialize([mac]);
+    await model.selectPeer(mac);
+    client.state = 'running';
+    final creation = model.create();
+    await client.created.future;
+    await Future<void>.delayed(Duration.zero);
+    model.dispose();
+    await creation.timeout(const Duration(milliseconds: 500));
+    expect(conn.rooms.hasListener, isFalse);
+    // tearDown owns the replacement; do not dispose the same notifier twice.
+    model = NewSessionModel(conn, Client(conn, store), store);
+  });
   test(
     'zero rooms: selects machine, browses Unicode path and creates fresh request',
     () async {

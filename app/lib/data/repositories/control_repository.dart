@@ -8,13 +8,18 @@ import 'package:app/protocol/protocol.dart';
 import 'package:app/protocol/uuid7.dart';
 
 class ControlRepository extends ControlClient {
-  ControlRepository(this._conn, {this.timeoutOverride}) {
+  ControlRepository(
+    this._conn, {
+    this.timeoutOverride,
+    this.cacheCapabilities = false,
+  }) {
     _statusSub = _conn.statusStream.listen((_) => _bind());
     _bind();
   }
   static const room = 'perch-control';
   final ConnectionManager _conn;
   final Duration? timeoutOverride;
+  final bool cacheCapabilities;
   final _connections = StreamController<void>.broadcast();
   final _pending = <String, _PendingControl>{};
   late final StreamSubscription<ConnectionStatus> _statusSub;
@@ -135,6 +140,10 @@ class ControlRepository extends ControlClient {
 
   @override
   Future<ControlCapabilities> capabilities() async {
+    // Session navigation can reuse negotiation; management refreshes retain
+    // their explicit capability checks. _bind invalidates on connection change.
+    final cached = _capabilities;
+    if (cacheCapabilities && cached != null) return cached;
     final generation = _generation;
     final id = 'control_${uuid7()}';
     final response =

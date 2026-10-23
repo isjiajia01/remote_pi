@@ -363,7 +363,10 @@ GoRouter buildRouter(
         builder: (ctx, st) => NewSessionPage(
           model: NewSessionModel(
             injector.get<ConnectionManager>(),
-            ControlRepository(injector.get<ConnectionManager>()),
+            ControlRepository(
+              injector.get<ConnectionManager>(),
+              cacheCapabilities: true,
+            ),
             const PendingSessionStore(),
           ),
           storage: injector.get<PairingStorage>(),
