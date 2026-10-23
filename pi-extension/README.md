@@ -637,7 +637,7 @@ handlers that attempt to mutate them throw and the SDK blocks execution;
 tools that mutate their own input may likewise fail. Nested calls through the
 SDK agent loop receive their own challenges. Direct tool invocations outside
 SDK hooks and arbitrary code in installed extensions are outside this gate.
-The tested SDK is 0.79.10; preserve these checks when upgrading it.
+The supported and tested SDK is Pi 1.4.0 (>=1.4.0 <2); preserve these checks when upgrading it.
 
 This phase adds no mobile approval UI. Enable the policy only with a client
 that implements the new contract; older clients leave selected calls waiting
@@ -710,10 +710,15 @@ for palette and export sizes.
 
 MIT
 
-## Perch APNs push (Phase 5b-1, extension only)
+## Perch APNs push
 
-Push is **OFF by default**, independently of tool approvals. To opt in, create
-`~/.pi/remote/perch-push.json` locally, with restrictive permissions:
+Push delivery is **OFF until locally configured**, independently of tool approvals.
+Minimal mode enables only authenticated `perch_push_register` / `perch_push_unregister`
+among the management messages. ApprovalService and other management APIs remain disabled.
+Pi **1.4.0** is the tested runtime (supported range >=1.4.0 <2); the extension uses
+its typed `agent_settled` and `ui_prompt_start/end` lifecycle events.
+
+Create `~/.pi/remote/perch-push.json` yourself (mode 0600, never in Git):
 
 ```json
 {
@@ -722,42 +727,68 @@ Push is **OFF by default**, independently of tool approvals. To opt in, create
   "key_id": "EXAMPLE001",
   "team_id": "EXAMPLE001",
   "topic": "dev.zhangjiajia.perch",
-  "environment": "sandbox"
+  "environment": "sandbox",
+  "include_preview": true
 }
 ```
 
-Use `production` for a production APNs device token. The key must be an ES256
-(P-256) APNs signing key. Missing, disabled or invalid configuration disables
-sending and registration without opening a key. There is no remote config or
-key setter. Config is rechecked on registration/events; an already submitted
-request can complete after disabling. Keys are opened lazily when sending;
-provider JWTs refresh after at most 50 minutes and once on ExpiredProviderToken.
+The APNs key must be ES256/P-256 for this team/app. Missing, disabled or invalid
+configuration disables registration and delivery. `include_preview` defaults to
+**true**: the final assistant reply's plain text (at most 240 Unicode code points
+and 1 KiB UTF-8) travels through Apple and may appear on the lock screen. Set
+`include_preview: false` for generic text only. Thinking, tool calls, arguments,
+statistics and earlier commentary are excluded. Empty replies use
+“本次回复已结束，点开查看”; error/abort uses “本次运行已结束，请打开查看”.
+Blocking prompts use the fixed “需要你操作，点开 Perch 查看”, with a short debounce
+to suppress quickly resolved and overlapping prompts.
 
-A paired, authenticated Owner can send `perch_push_register` or
-`perch_push_unregister` with `{type,id,version:1,owner,token,environment}`.
-The Owner claim must match the authenticated relay sender. Reply is
-`perch_push_result {type,id,version:1,registered}` or `perch_error`. Unregister
-also works with sending disabled. Register every current device token; unregister
-old tokens when rotating. Owner/environment/token records live in
-`~/.pi/remote/perch-push-tokens/` as atomic mode-0600 files (directory 0700).
-Pairing is checked again before each send, so stale revoked records cannot
-receive notifications. APNs 410 and BadDeviceToken responses remove that
-registration; transient failures retain it, without automatic event retries.
+One completion is emitted when a top-level TUI or independent mobile RPC run
+settles, including while the phone is disconnected from the relay. Print/batch,
+`PI_SUBAGENT_CHILD=1`, child session headers and unreadable ancestry are excluded.
+No minimum duration or model summarization is used. Pushes broadcast to all
+currently paired Owners' registered devices; there is no per-session subscription.
 
-Approval challenges published by the 5a gate emit `approval_request` alerts;
-`agent_end` emits `session_finished` once per run, including to registered
-Owners currently offline. Approval rules still require a connected Owner and
-remain unchanged. Alerts contain a fixed generic message plus only event kind,
-event/session IDs and, for approvals, tool-call ID. They contain no tool names,
-arguments, prompts, chat text or results. APNs transport uses built-in HTTP/2,
-alert priority 10 and an event-derived collapse ID. A bounded process-local
-4096-entry Owner/event dedup cache suppresses concurrent/repeated sends;
-restart, eviction or config changes reset that guarantee. Delivery is best
-effort and does not prove execution or completion observed by the phone.
+The iOS app requests permission and registers its sandbox token through an
+authenticated normal session room. Open a running session at least once; a
+control-only machine waits until a normal room becomes ready. Launch, reconnect,
+foreground, token rotation and room readiness trigger registration; timeouts get
+one bounded retry. Settings → Notifications shows status and offers Retry.
+Permission denial must be corrected in iOS Settings. The current iOS entitlement
+is development (`sandbox` on the wire); TestFlight requires production signing
+and production token registration. Do not infer the environment from Dart build mode.
+A locally configured environment mismatch is rejected instead of acknowledged.
 
-For isolated use/tests, `PERCH_PUSH_CONFIG_PATH` overrides the config path,
-`PERCH_PUSH_TOKEN_DIR` overrides registry storage, and `REMOTE_PI_HOME` overrides
-the home prefix for their defaults. Tests generate throwaway P-256 keys and
-inject a loopback fake HTTP/2 endpoint in code; no dependency or real APNs
-request is needed. Wire/payload fixtures are in
+Completion/prompt taps use machine identity plus the actually announced room ID,
+match a local pairing, reconnect using local connection settings and request fresh
+rooms. Missing/closed/renamed targets open Agents with an unavailable message.
+Generic/prompt taps never approve a tool. No push-supplied URL is used.
+
+Owner/environment/token records are atomic mode-0600 files under
+`~/.pi/remote/perch-push-tokens/` (directory 0700). Registration requires matching
+authenticated paired Owner; unregister still works with push disabled. Pairing is
+rechecked before every send and retry. Invalid tokens are removed without erasing
+fresh registrations. APNs uses HTTP/2, alert priority 10, one-hour expiration,
+4096-byte total payload limit and a stable per-event collapse ID. Transient
+429/5xx/network failures get at most two asynchronous retries with jitter; 403
+configuration rejections do not retry blindly. Provider tokens refresh after 50
+minutes or once for ExpiredProviderToken. No persistent delivery queue is created.
+
+`/remote-pi push-test` uses the existing dispatcher (no extra registered command)
+to send a generic diagnostic alert to paired registered devices. It reports
+configuration unavailable / no devices / APNs accepted / rejected without tokens
+or user text. **APNs accepted means accepted, not delivered.** Pi/Mac offline or
+asleep cannot generate pushes; phone offline delivery is best effort until expiry.
+
+Tests inject loopback HTTP/2 with throwaway keys; no live APNs is needed. Config
+and registry paths can be isolated with `PERCH_PUSH_CONFIG_PATH`,
+`PERCH_PUSH_TOKEN_DIR`, and `REMOTE_PI_HOME`. Shared wire/payload fixtures are in
 [`push.json`](../.orchestration/contracts/perch-v1/push.json).
+
+Before replacing ntfy, verify the actual extension load path and avoid duplicate
+Perch loads. Install a development-signed build on a physical iPhone and verify
+its signed entitlements/profile. Test registration acknowledgement, locked/offline
+relay receipt from both terminal and mobile RPC runs, long Unicode replies,
+warm/killed taps, denied permission and revoked Owner. RPC prompt delivery and
+native registration failures also require device smoke checks. A signed iOS build
+and APNs acceptance alone do not establish lock-screen delivery. Keep ntfy in
+place until device acceptance; rollback by disabling local Perch push config.

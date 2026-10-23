@@ -61,7 +61,7 @@ terminal tabs or install itself automatically.
 
 ## Relay and security
 
-Use a relay reachable by both devices; see [relay/README.md](relay/README.md) for self-hosting. TLS protects transport. **Messages are not end-to-end encrypted; the relay operator can read them.** Pairing and stored identity use the inherited authentication protocol. A sleeping/offline Mac cannot serve chat. Background push is disabled in this edition.
+Use a relay reachable by both devices; see [relay/README.md](relay/README.md) for self-hosting. TLS protects transport. **Messages are not end-to-end encrypted; the relay operator can read them.** Pairing and stored identity use the inherited authentication protocol. A sleeping/offline Mac cannot serve chat. Optional direct APNs notifications work in minimal mode with Pi 1.4.0 or newer (before 2.0). See [push setup](pi-extension/README.md#perch-apns-push) for local opt-in, preview privacy and device validation.
 
 ## Validation
 
