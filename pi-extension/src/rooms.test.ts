@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { activeRoomIdFor, roomIdForCwd, roomIdFor } from "./rooms.js";
+import { activeRoomIdFor, exportParentRoom, isSubagentRun, PARENT_ROOM_ENV, roomIdForCwd, roomIdFor } from "./rooms.js";
 import { defaultAgentName } from "./session/local_config.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -14,6 +14,42 @@ test("independent room survives rename; invalid or absent session ids preserve l
   expect(activeRoomIdFor("/tmp/a", "renamed")).toBe(`session-${id}`);
   vi.stubEnv("PERCH_SESSION_ID", "invalid");
   expect(activeRoomIdFor("/tmp/a", "first")).toBe(roomIdFor("/tmp/a", "first"));
+});
+
+describe("sub-agent rooms (Agents page hierarchy)", () => {
+  const id = "12345678-1234-4234-8234-123456789abc";
+  test("child run announces sub.<own>.<parent>; parent comes from the inherited env", () => {
+    vi.stubEnv("PI_SUBAGENT_CHILD", "1");
+    vi.stubEnv(PARENT_ROOM_ENV, "AbC-12_xyz34");
+    expect(activeRoomIdFor("/tmp/p", "p#3")).toBe(`sub.${roomIdFor("/tmp/p", "p#3")}.AbC-12_xyz34`);
+  });
+  test("sub-agent of a phone session never claims the parent's session-<uuid> room", () => {
+    vi.stubEnv("PERCH_SESSION_ID", id);
+    vi.stubEnv(PARENT_ROOM_ENV, `session-${id}`);
+    expect(activeRoomIdFor("/tmp/p", "p#2", true)).toBe(`sub.${roomIdFor("/tmp/p", "p#2")}.session-${id}`);
+  });
+  test("unknown or malformed parent is omitted, never spliced into the id", () => {
+    vi.stubEnv(PARENT_ROOM_ENV, "bad.parent");
+    expect(activeRoomIdFor("/tmp/p", "p#2", true)).toBe(`sub.${roomIdFor("/tmp/p", "p#2")}`);
+    vi.stubEnv(PARENT_ROOM_ENV, "");
+    expect(activeRoomIdFor("/tmp/p", "p#2", true)).toBe(`sub.${roomIdFor("/tmp/p", "p#2")}`);
+  });
+  test("main runs keep legacy ids and export them; sub-agent runs never overwrite the parent", () => {
+    vi.stubEnv("PI_SUBAGENT_CHILD", "");
+    vi.stubEnv(PARENT_ROOM_ENV, "");
+    expect(activeRoomIdFor("/tmp/p", "p", false)).toBe(roomIdForCwd("/tmp/p"));
+    exportParentRoom("mainRoom1234", false);
+    expect(process.env[PARENT_ROOM_ENV]).toBe("mainRoom1234");
+    exportParentRoom("sub.x.mainRoom1234", true);
+    expect(process.env[PARENT_ROOM_ENV]).toBe("mainRoom1234");
+  });
+  test("detection: runner env or a parentSession header", () => {
+    vi.stubEnv("PI_SUBAGENT_CHILD", "");
+    expect(isSubagentRun({})).toBe(false);
+    expect(isSubagentRun({ parentSession: "/s/parent.jsonl" })).toBe(true);
+    vi.stubEnv("PI_SUBAGENT_CHILD", "1");
+    expect(isSubagentRun(null)).toBe(true);
+  });
 });
 
 describe("roomIdForCwd", () => {

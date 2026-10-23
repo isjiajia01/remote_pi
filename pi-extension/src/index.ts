@@ -81,7 +81,7 @@ import {
   createExtensionUiBridge,
   type ExtensionUiBridge,
 } from "./extension_ui_bridge.js";
-import { activeRoomIdFor as roomIdFor } from "./rooms.js";
+import { activeRoomIdFor, exportParentRoom, isSubagentRun } from "./rooms.js";
 import { registerAgentTools } from "./session/tools.js";
 import { formatPeerInventory } from "./session/peer_inventory.js";
 import { MeshNode } from "./session/mesh_node.js";
@@ -260,6 +260,10 @@ function _isStrictBase64(data: string): boolean {
 }
 
 let _myRoomId: string | null = null;   // this Pi's room id (derived from cwd)
+// pi-subagents child run (decided at relay start). Drives the `sub.` room id
+// prefix the app uses to nest sub-agents under their parent (see rooms.ts).
+let _subagentRun = false;
+const roomIdFor = (cwd: string, name?: string): string => activeRoomIdFor(cwd, name, _subagentRun);
 // Plan/28 Wave D.1: `thinking` published alongside `model` so the app's
 // Quick Actions sheet hydrates the thinking segmented control on first
 // open instead of starting null. The SDK fires `thinking_level_select`
@@ -2977,6 +2981,12 @@ async function _cmdStart(ctx: Pick<ExtensionContext, "ui" | "cwd">): Promise<voi
   // default/unnamed case preserves the legacy cwd-only id (no re-keying). Uses
   // the SAME name as room_meta.name / pair_ok below — the invariant that the
   // app pairs on the room the Pi actually announces.
+  try {
+    const header = ((ctx as Partial<ExtensionContext>).sessionManager ?? (_lastEventCtx as Partial<ExtensionContext> | null)?.sessionManager)?.getHeader?.();
+    _subagentRun = isSubagentRun(header as { parentSession?: unknown } | null | undefined);
+  } catch {
+    _subagentRun = isSubagentRun();
+  }
   const roomId = roomIdFor(cwd, sessionName);
 
   // Seed the current model from the SDK's resolved selection so room_meta
@@ -3075,6 +3085,7 @@ async function _cmdStart(ctx: Pick<ExtensionContext, "ui" | "cwd">): Promise<voi
   _relayUrl = relayUrl;
   _peerShort = myShort;
   _myRoomId = roomId;
+  exportParentRoom(roomId, _subagentRun);
   _state = "started";
   // Set _sessionStartedAt ONLY on first /remote-pi start since process boot.
   // Subsequent start cycles (after stop) preserve the original epoch so the

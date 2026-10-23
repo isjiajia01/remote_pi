@@ -2,8 +2,50 @@ import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { defaultAgentName } from "./session/local_config.js";
 
+/**
+ * Env var a MAIN Pi exports with its published room id. Sub-agent runs
+ * (pi-subagents async runners or in-process children) inherit it and announce
+ * it as their parent. Sub-agent runs never write it.
+ */
+export const PARENT_ROOM_ENV = "PERCH_ROOM_ID";
+const ROOM_TOKEN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * True for pi-subagents child runs: the async runner sets PI_SUBAGENT_CHILD=1;
+ * in-process children carry `parentSession` in their session header.
+ */
+export function isSubagentRun(header?: { parentSession?: unknown } | null): boolean {
+  return process.env["PI_SUBAGENT_CHILD"] === "1" || Boolean(header?.parentSession);
+}
+
+/**
+ * Room kind travels IN the room id because the relay forwards only a fixed
+ * room_meta field set (name/cwd/model/thinking/working) and drops new fields:
+ *   `session-<uuid>`              phone-created (perch-sessiond) session
+ *   `sub.<hash12>[.<parentRoom>]` sub-agent run; parent omitted when unknown
+ *   anything else                 main terminal/daemon session
+ * '.' never occurs in main/mobile ids, so the parent is unambiguous.
+ */
+export function subagentRoomIdFor(cwd: string, name?: string): string {
+  const parent = process.env[PARENT_ROOM_ENV];
+  const own = roomIdFor(cwd, name);
+  return parent && ROOM_TOKEN.test(parent) ? `sub.${own}.${parent}` : `sub.${own}`;
+}
+
+/** Called once a main room is published so later sub-agent runs can link to it. */
+export function exportParentRoom(roomId: string, subagent: boolean): void {
+  if (!subagent && ROOM_TOKEN.test(roomId)) process.env[PARENT_ROOM_ENV] = roomId;
+}
+
 /** Mobile-created sessions keep their independent room even after renaming. */
-export function activeRoomIdFor(cwd: string, name?: string): string {
+export function activeRoomIdFor(
+  cwd: string,
+  name?: string,
+  subagent = process.env["PI_SUBAGENT_CHILD"] === "1",
+): string {
+  // Before PERCH_SESSION_ID: a sub-agent of a phone session inherits that env
+  // var and would otherwise claim (and be refused) its parent's room.
+  if (subagent) return subagentRoomIdFor(cwd, name);
   const session = process.env["PERCH_SESSION_ID"];
   return session && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(session)
     ? `session-${session}` : roomIdFor(cwd, name);
