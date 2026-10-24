@@ -200,7 +200,15 @@ class _HomePageState extends State<HomePage> {
     staleSince: state.staleSince,
     now: state.now,
     onOpen: () => _open(context, vm, item.peer, item.room),
-    onRemove: vm.canRemove(item) ? () => vm.removeOffline([item]) : null,
+    onRemove: vm.canRemove(item)
+        ? () {
+            final selection = context.read<SessionSelection>();
+            if (selection.matches(item.peer.remoteEpk, item.room.roomId)) {
+              selection.clear();
+            }
+            vm.removeOffline([item]);
+          }
+        : null,
     onEnd: vm.canEnd(item) ? () => _confirmEnd(context, vm, item) : null,
   );
 
@@ -443,6 +451,12 @@ class _HomePageState extends State<HomePage> {
       destructive: true,
     );
     if (!ok || !context.mounted) return;
+    // Close the detail pane first: it would otherwise keep showing a chat
+    // whose room is about to disappear (blank/black screen on wide layouts).
+    final selection = context.read<SessionSelection>();
+    if (selection.matches(item.peer.remoteEpk, item.room.roomId)) {
+      selection.clear();
+    }
     try {
       await vm.endPhoneSession(item);
     } on ControlFailure catch (e) {
