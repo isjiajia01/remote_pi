@@ -169,6 +169,7 @@ void main() {
         );
         await conn.connectTo(_peerA);
         ch.pushControl(const PeerOnline(peer: 'epk_A'));
+        ch.pushControl(const RoomsSnapshot(peer: 'epk_A', rooms: []));
         for (final id in ['r1', 'sub.aaaaaaaaaaaa.r1']) {
           ch.pushControl(
             RoomAnnounced(peer: 'epk_A', roomId: id, startedAt: 1),
@@ -193,6 +194,108 @@ void main() {
         );
         expect(await storage.loadRooms('epk_A'), isEmpty);
 
+        vm.dispose();
+        await conn.disconnect();
+        conn.dispose();
+      },
+    );
+    test(
+      'cached phone rows the relay no longer knows: removable only after the '
+      'rooms snapshot, stay gone across restarts, live main row untouched, '
+      'and come back if their Pi announces again',
+      () async {
+        const u1 = '000f7ed8-04b8-4d2a-9c1e-1234567890ab';
+        const u2 = '88a6e523-1111-4222-8333-444455556666';
+        final storage = _FakeStorage([_peerA]);
+        await storage.saveRooms('epk_A', const [
+          PersistedRoom(
+            roomId: 'session-$u1',
+            name: '10.15_Perch-$u1',
+            cwd: '/u/10.15_Perch',
+            startedAt: 1,
+          ),
+          PersistedRoom(
+            roomId: 'session-$u2',
+            name: '10.15_Perch-$u2',
+            cwd: '/u/10.15_Perch',
+            startedAt: 1,
+          ),
+          PersistedRoom(
+            roomId: 'perchMain01',
+            name: '10.15_Perch',
+            cwd: '/u/10.15_Perch',
+            startedAt: 1,
+          ),
+        ]);
+        Future<(ConnectionManager, _ControllableChannel, HomeViewModel)>
+        start() async {
+          final ch = _ControllableChannel();
+          final conn = ConnectionManager(
+            factory: (_, _) async => ch,
+            storage: storage,
+            emitDebounce: Duration.zero,
+          );
+          final vm = HomeViewModel(
+            storage,
+            Preferences(_FakeSecureStorage()),
+            conn,
+          );
+          await conn.boot();
+          ch.pushControl(const PeerOnline(peer: 'epk_A'));
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return (conn, ch, vm);
+        }
+
+        var (conn, ch, vm) = await start();
+        // Before the snapshot every cached row reads Offline — even the
+        // running main session — so nothing may be removed yet.
+        expect(vm.visibleItems, hasLength(3));
+        expect(vm.visibleItems.where(vm.canRemove), isEmpty);
+        expect(await vm.removeOffline(vm.visibleItems), 0);
+
+        ch.pushControl(
+          const RoomsSnapshot(
+            peer: 'epk_A',
+            rooms: [
+              RoomInfo(
+                roomId: 'perchMain01',
+                name: '10.15_Perch',
+                cwd: '/u/10.15_Perch',
+                startedAt: 1,
+              ),
+            ],
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(vm.visibleItems.where(vm.canRemove).map((i) => i.displayName), {
+          'Phone session · 000f',
+          'Phone session · 88a6',
+        });
+        expect(await vm.removeOffline(vm.visibleItems), 2);
+        expect((await storage.loadRooms('epk_A')).map((r) => r.roomId), [
+          'perchMain01',
+        ]);
+        vm.dispose();
+        await conn.disconnect();
+        conn.dispose();
+
+        // Cold restart: the removed rows do not come back from the cache.
+        (conn, ch, vm) = await start();
+        expect(conn.roomsFor('epk_A').map((r) => r.roomId), ['perchMain01']);
+        // Removal is not a block: a Pi that announces again is listed.
+        ch.pushControl(
+          const RoomAnnounced(
+            peer: 'epk_A',
+            roomId: 'session-$u1',
+            name: '10.15_Perch-$u1',
+            startedAt: 2,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          conn.roomsFor('epk_A').map((r) => r.roomId),
+          containsAll(['perchMain01', 'session-$u1']),
+        );
         vm.dispose();
         await conn.disconnect();
         conn.dispose();

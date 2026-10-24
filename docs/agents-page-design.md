@@ -61,13 +61,16 @@ lower-bound estimate (turns while the phone was closed are invisible).
 | terminal, name = folder or empty | `Terminal` |
 | terminal, `<folder>#N` (2nd Pi in folder, or old-extension sub-agent) | `Terminal N` |
 | phone, name `<folder>-<uuid>` | `Phone session · <uuid[0..4]>` |
+| non-`session-` room, name `<folder>-<uuid>` (older cache) | `Phone session · <uuid[0..4]>` (no End) |
 | sub-agent, `<folder>#N` | `Sub-agent N` |
 | any custom/renamed name | as is |
 
 Model label (`friendlyModel`): display names (“Claude Opus · 5.5”) as is; ids lose
 provider/group path, `model-`/`claude-` prefix and `-YYYYMMDD`, mono; routing
-tiers (`group/std`, `fast`, `deep`, …) read as words (“Standard”). CJK display
-names (e.g. `标准`) are the user's own labels and are kept.
+tiers (`group/std`, `fast`, `deep`, …) read as words (“Standard”). The Pi
+announces the models.json display name verbatim, so the matching tier names
+(`标准 编码 快速 深度 侦察 调研 顾问 审查 设计 视觉`) map to the same words; other
+custom names are kept.
 
 ## Protocol (backward compatible)
 The relay forwards only `name/cwd/model/thinking/working` from `room_meta`
@@ -93,6 +96,12 @@ the **room id** (`pi-extension/src/rooms.ts`):
 | live sub-agent | open only | — | lifecycle owned by its parent run |
 
 Live rows are never removable (they would reappear and hide a running process).
+Remove (row and bulk) appears only after the relay's first `rooms` snapshot for
+that machine on the current connection (`ConnectionManager.roomsSynced`; the
+relay always sends the first reply, even empty). Before it, every cached row
+reads Offline, including running sessions. Removal deletes the cached room and
+is persisted; nothing re-adds it except a new announce from a running Pi, so
+cached rows the relay no longer knows stay gone across restarts.
 
 ## Why `10.14_Slip` stayed online
 A real `pi` (pid 78735, ttys002, since 10:34) was still running; a hidden or

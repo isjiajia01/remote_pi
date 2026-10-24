@@ -35,6 +35,11 @@ void main() {
       'Phone session · 000f',
     );
     expect(sessionTitle(room('session-$uuid', name: 'Fix login')), 'Fix login');
+    // perch-sessiond name cached under a non-`session-` room id.
+    expect(
+      sessionTitle(room('legacyRoom01', name: '10.15_Perch-$uuid')),
+      'Phone session · 000f',
+    );
     expect(
       sessionTitle(room('sub.h4sh12345678.x', name: '10.15_Perch#3')),
       'Sub-agent 3',
@@ -49,7 +54,11 @@ void main() {
     ));
     expect(friendlyModel('group/model-claude-opus'), ('opus', true));
     expect(friendlyModel('Claude Opus · 5.5'), ('Claude Opus · 5.5', false));
-    expect(friendlyModel('标准'), ('标准', false));
+    // Pi announces models.json display names verbatim; tier names never
+    // show raw. Unknown custom labels are kept.
+    expect(friendlyModel('标准'), ('Standard', false));
+    expect(friendlyModel('深度'), ('Deep', false));
+    expect(friendlyModel('我的模型'), ('我的模型', false));
     expect(friendlyModel('  '), ('', false));
   });
 }

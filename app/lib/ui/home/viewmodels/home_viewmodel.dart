@@ -230,14 +230,20 @@ class HomeViewModel extends ViewModel<HomeState> {
   Future<int> removeOffline(Iterable<HomeItem> items) async {
     var removed = 0;
     for (final item in items) {
-      if (item.isLive || isRoomLive(item.peer.remoteEpk, item.room.roomId)) {
-        continue;
-      }
+      if (!canRemove(item)) continue;
       await _conn.deleteCachedRoom(item.peer.remoteEpk, item.room.roomId);
       removed++;
     }
     return removed;
   }
+
+  /// Offline main rows only, and only after this connection received the
+  /// relay's rooms snapshot for the machine: before that every cached row
+  /// reads Offline, including sessions that are still running.
+  bool canRemove(HomeItem item) =>
+      !item.isLive &&
+      !isRoomLive(item.peer.remoteEpk, item.room.roomId) &&
+      _conn.roomsSynced(item.peer.remoteEpk);
 
   /// Only phone-created sessions can be ended remotely (perch-sessiond
   /// `sessions.stop`). Terminal sessions have no remote stop by design.

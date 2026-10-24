@@ -79,6 +79,11 @@ String sessionTitle(RoomInfo room) {
       return name;
     case RoomOrigin.terminal:
       if (generated) return n == null ? 'Terminal' : 'Terminal $n';
+      // A perch-sessiond name on a non-`session-` room (older daemon/cache).
+      final auto = _autoPhoneName.firstMatch(name);
+      if (auto != null && name.substring(0, auto.start) == project) {
+        return 'Phone session · ${name.substring(auto.start + 1, auto.start + 5)}';
+      }
       return name;
   }
 }
@@ -95,15 +100,31 @@ const _tiers = {
   'review': 'Review',
   'design': 'Design',
   'vision': 'Vision',
+  // Pi model display names for the same routing tiers (~/.pi models.json
+  // `name`, announced verbatim in room_meta.model). The app is English, so
+  // they read as the same tier words instead of raw '标准'.
+  '标准': 'Standard',
+  '编码': 'Code',
+  '快速': 'Fast',
+  '深度': 'Deep',
+  '侦察': 'Scout',
+  '调研': 'Research',
+  '顾问': 'Oracle',
+  '审查': 'Review',
+  '设计': 'Design',
+  '视觉': 'Vision',
 };
 
 /// One label per model regardless of whether the Pi announced a display name
 /// or a raw id: drop provider/group path, `model-`/`claude-` prefixes and
-/// date stamps; routing tiers (`group/std`) read as their tier word.
+/// date stamps; routing tiers (`group/std`, or its display name `标准`) read
+/// as their tier word. Other display names are kept as is.
 /// Returns (label, isId) — ids render monospace.
 (String, bool) friendlyModel(String raw) {
   final value = raw.trim();
   if (value.isEmpty) return ('', false);
+  final named = _tiers[value];
+  if (named != null) return (named, false);
   final idLike = RegExp(r'^[A-Za-z0-9._:/-]+$').hasMatch(value);
   if (!idLike) return (value, false); // display name, e.g. "Claude Opus · 5.5"
   var last = value.split('/').last;

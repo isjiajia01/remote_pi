@@ -200,7 +200,7 @@ class _HomePageState extends State<HomePage> {
     staleSince: state.staleSince,
     now: state.now,
     onOpen: () => _open(context, vm, item.peer, item.room),
-    onRemove: item.isLive ? null : () => vm.removeOffline([item]),
+    onRemove: vm.canRemove(item) ? () => vm.removeOffline([item]) : null,
     onEnd: vm.canEnd(item) ? () => _confirmEnd(context, vm, item) : null,
   );
 
@@ -251,19 +251,24 @@ class _HomePageState extends State<HomePage> {
     ),
   );
 
-  Widget _removeButton(
+  /// Hidden until the relay confirmed which rooms are running.
+  Widget? _removeButton(
     BuildContext context,
     HomeViewModel vm,
     List<HomeItem> items,
-  ) => CupertinoButton(
-    padding: const EdgeInsets.symmetric(horizontal: 16),
-    minimumSize: const Size(44, 44),
-    onPressed: () => _confirmRemove(context, vm, items),
-    child: Text(
-      'Remove',
-      style: context.typo.footnote.copyWith(color: context.colors.error),
-    ),
-  );
+  ) {
+    final removable = items.where(vm.canRemove).toList();
+    if (removable.isEmpty) return null;
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      minimumSize: const Size(44, 44),
+      onPressed: () => _confirmRemove(context, vm, removable),
+      child: Text(
+        'Remove',
+        style: context.typo.footnote.copyWith(color: context.colors.error),
+      ),
+    );
+  }
 
   Widget _liveCard(
     BuildContext context,

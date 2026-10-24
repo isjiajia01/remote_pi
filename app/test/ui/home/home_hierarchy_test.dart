@@ -104,6 +104,8 @@ class _Home extends HomeViewModel {
   @override
   bool canEnd(HomeItem item) => item.kind.isPhone && item.isLive;
   @override
+  bool canRemove(HomeItem item) => !item.isLive;
+  @override
   Future<int> removeOffline(Iterable<HomeItem> items) async {
     removed.addAll(items.map((i) => i.room.roomId));
     return removed.length;

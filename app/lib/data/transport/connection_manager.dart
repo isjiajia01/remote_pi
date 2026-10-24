@@ -117,6 +117,11 @@ class ConnectionManager extends Service {
   // but not in `_liveRoomIds` are "offline" (last-seen state).
   final Map<String, List<RoomInfo>> _roomsByPeer = <String, List<RoomInfo>>{};
   final Map<String, Set<String>> _liveRoomIds = <String, Set<String>>{};
+  // Peers whose authoritative `rooms` snapshot arrived on the CURRENT relay
+  // connection (the relay always sends the first reply, even when empty).
+  // Until then a cached room's absence from `_liveRoomIds` proves nothing,
+  // so it must not be offered for removal (it may be a live session).
+  final Set<String> _roomsSynced = <String>{};
   final _roomsController =
       StreamController<Map<String, List<RoomInfo>>>.broadcast();
   bool _roomsRestored = false;
@@ -573,6 +578,7 @@ class ConnectionManager extends Service {
       _controlSub = null;
       return;
     }
+    _roomsSynced.clear();
     _controlSub = (ch as IControlLink).controlFrames.listen(_onControl);
   }
 
@@ -737,6 +743,7 @@ class ConnectionManager extends Service {
         _persistRoomsForPeer(key);
       case RoomsSnapshot(:final peer, :final rooms):
         final key = toStandardB64(peer);
+        final firstSync = _roomsSynced.add(key);
         // Merge snapshot into cache: add unknown rooms, refresh
         // metadata (preserving local rename + previous model when
         // the snapshot omits it), update live set.
@@ -770,7 +777,9 @@ class ConnectionManager extends Service {
         final listChanged = !_roomListEquals(newList, existing);
         if (!liveChanged && !listChanged) {
           // Relay re-emitted a snapshot identical to what we already
-          // have. Skip — no listeners need to know.
+          // have. Only the first one per connection is news (it makes
+          // offline rows removable).
+          if (firstSync) roomsDirty = true;
           break;
         }
         _roomsByPeer[key] = newList;
@@ -881,6 +890,12 @@ class ConnectionManager extends Service {
     final live = _liveRoomIds[toStandardB64(epk)];
     return live != null && live.contains(roomId);
   }
+
+  /// `true` once the relay's authoritative rooms snapshot for this peer
+  /// arrived on the current connection. Only then does "not announced"
+  /// mean "not running" (gates Remove for offline rows).
+  bool roomsSynced(String epk) =>
+      _status is StatusOnline && _roomsSynced.contains(toStandardB64(epk));
 
   /// Plan/32 — `true` when the relay's last room-meta broadcast for
   /// `(epk, roomId)` carried `working: true` (an in-flight agent turn).
